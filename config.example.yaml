@@ -1,0 +1,24 @@
+vault: /srv/vault
+daily_dir: Daily
+date_format: YYYY-MM-DD
+timezone: America/Detroit
+lookback_days: 7
+listen: 127.0.0.1:8090
+queue_db: /var/lib/scribble/queue.db
+jev:
+  url: https://api.typesafe.ai
+  api_key_env: TYPESAFE_API_KEY
+  model: jev-latest
+  amend_confidence: 0.75
+  link_confidence: 0.75
+  tag_confidence: 0.6
+claude:
+  model: claude-haiku-5-5
+  binary: claude
+transcribe:
+  url: ""
+  model: large-v3-turbo
+  api_key_env: WHISPER_API_KEY
+max_attempts: 3
+retry_seconds: 5
+log_level: info

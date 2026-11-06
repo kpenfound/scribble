@@ -1,0 +1,8 @@
+/bin/
+/node_modules/
+/playwright-report/
+/test-results/
+/.local/
+*.db
+*.db-shm
+*.db-wal

@@ -1,0 +1,11 @@
+{
+  "name": "scribble",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/check-web.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": { "@playwright/test": "1.58.2" }
+}

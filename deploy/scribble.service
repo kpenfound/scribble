@@ -1,0 +1,28 @@
+[Unit]
+Description=Scribble thought capture
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=scribble
+Group=scribble
+WorkingDirectory=/var/lib/scribble
+Environment=HOME=/var/lib/scribble
+EnvironmentFile=/etc/scribble/environment
+ExecStart=/usr/local/bin/scribble -config /etc/scribble/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+StateDirectory=scribble
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/vault /var/lib/scribble
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

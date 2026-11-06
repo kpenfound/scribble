@@ -1,0 +1,26 @@
+[Unit]
+Description=Obsidian Headless Sync for Scribble
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=scribble
+Group=scribble
+WorkingDirectory=/srv/vault
+Environment=HOME=/var/lib/scribble
+ExecStart=/usr/local/bin/ob sync --continuous --path /srv/vault
+Restart=on-failure
+RestartSec=10
+StateDirectory=scribble
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/vault /var/lib/scribble
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

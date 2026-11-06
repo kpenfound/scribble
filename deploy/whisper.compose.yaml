@@ -1,0 +1,23 @@
+services:
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    environment:
+      WHISPER__INFERENCE_DEVICE: cuda
+      WHISPER__COMPUTE_TYPE: float16
+      STT_MODEL_TTL: "-1"
+      PRELOAD_MODELS: '["deepdml/faster-whisper-large-v3-turbo-ct2"]'
+      ENABLE_UI: "false"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+volumes:
+  whisper-models:

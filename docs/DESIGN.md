@@ -218,7 +218,7 @@ log_level: info
 
 ## Implementation notes
 
-- **Model calls:** use [kpenfound/agentcore](https://github.com/kpenfound/agentcore) to call both Jev, through its Jev harness, and Claude.
+- **Model calls:** use [kpenfound/agentcore](https://github.com/kpenfound/agentcore) v1.1.0 to call both Jev, through its Jev harness, and Claude through its restricted Claude Code runner. The Claude CLI is a service dependency.
 - **Reference project:** follow [kpenfound/osmia](https://github.com/kpenfound/osmia) for:
   - `tailscale serve` setup;
   - frontend style and components for the PWA.
@@ -229,9 +229,9 @@ log_level: info
 
 **Testing:** no test, unit or e2e, calls a real Claude, Jev or whisper.
 
-- Jev and Claude are replaced with the mocks from agentcore. Pin the agentcore release that added them. Scripted Jev answers include probabilities, so the threshold logic is tested on both sides of each threshold.
+- Jev and Claude are replaced with the mocks from agentcore v1.1.0. Scripted Jev answers include probabilities, so the threshold logic is tested on both sides of each threshold.
 - Whisper is replaced with a fake `/v1/audio/transcriptions` server in scribble's test tree that returns fixture text for each audio fixture.
-- Playwright e2e tests run the real binary against these fake HTTP endpoints, configured by URL, so the production client code paths are exercised.
+- Playwright e2e tests run the real binary against fake Jev and Whisper HTTP endpoints, configured by URL, and agentcore's fake Claude CLI, configured by executable path, so the production client code paths are exercised.
 - The vault is a temp directory with fixture daily notes. Sync is never run in tests.
 
 ## Follow-ups
@@ -240,3 +240,14 @@ Neither of these blocks implementation. Both must be covered step by step in the
 
 - [ ] **Whisper server.** Setup instructions: install the faster-whisper server on the RTX 3070 host with `float16` and `large-v3-turbo`, expose it with `tailscale serve`, and set `transcribe.url`. Until it exists, text input works and voice jobs fail visibly in the PWA.
 - [ ] **Threshold tuning.** Setup instructions: explain the three Jev thresholds and how to query the `route.decision` and `entry.undo` logs (a `journalctl` + `jq` example). Ship with the defaults, and revisit once there's real data.
+
+## Implementation decisions
+
+The implementation plan and recovery details are in [IMPLEMENTATION.md](IMPLEMENTATION.md). [setup.md](setup.md) covers deployment, the optional Whisper host, and threshold tuning step by step.
+
+- Pasted line breaks become spaces; the remaining input is preserved, trimmed.
+- `tag_confidence` also gates creating a new tag.
+- Routing identifiers include the daily-note path to distinguish block IDs repeated across different notes; written links retain the daily-note basename format above.
+- A durable write intent precedes note and registry changes. Recovery recognizes applied lines and tag rows. An unapplied intent crossing midnight is routed again for the new processing day.
+- Undo restores/removes the entry while keeping the registry's historical usage counts and tag definitions.
+- Hash checks and atomic rename protect against partial writes and detect intervening edits. An external Sync process can still write in the interval between the final check and rename; this is not a distributed filesystem transaction.
