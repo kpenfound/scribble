@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -43,7 +44,13 @@ type Service struct {
 }
 
 func NewService(c config.Config, log *slog.Logger) (*Service, error) {
-	store, err := queue.OpenStore(c.QueueDB)
+	if c.Paths.Root == "" {
+		return nil, errors.New("service: config has no state root")
+	}
+	if err := os.MkdirAll(c.Paths.Root, 0o700); err != nil {
+		return nil, err
+	}
+	store, err := queue.OpenStore(c.Paths.DB)
 	if err != nil {
 		return nil, err
 	}
@@ -52,16 +59,15 @@ func NewService(c config.Config, log *slog.Logger) (*Service, error) {
 		_ = store.Close()
 		return nil, err
 	}
-	dir := filepath.Dir(c.QueueDB)
 	return &Service{
 		Config:      c,
 		Store:       store,
 		Vault:       v,
-		Router:      routing.New(routing.Settings{URL: c.Jev.URL, Model: c.Jev.Model, APIKeyEnv: c.Jev.APIKeyEnv}),
-		Writer:      writer.New(c.Claude.Binary, c.Claude.Model, dir),
+		Router:      routing.New(routing.Settings{URL: c.Jev.URL, Model: c.Jev.Model, APIKeyEnv: c.Jev.APIKeyEnv, Timeout: c.JevTimeout()}),
+		Writer:      writer.New(writer.Settings{Model: c.Profiles.Default.Model, Timeout: c.WriterTimeout(), Dir: c.Paths.WriterDir, SessionsDir: c.Paths.Sessions}),
 		Transcriber: transcribe.New(c.Transcribe.URL, c.Transcribe.Model, c.Transcribe.APIKeyEnv),
-		Thresholds:  routing.Thresholds{Amend: c.Jev.AmendConfidence, Link: c.Jev.LinkConfidence, Tag: c.Jev.TagConfidence},
-		Retry:       queue.RetryPolicy{MaxAttempts: c.MaxAttempts, Backoff: time.Duration(c.RetrySeconds) * time.Second},
+		Thresholds:  routing.Thresholds{Amend: c.Jev.AmendThreshold, Link: c.Jev.LinkThreshold, Tag: c.Jev.TagThreshold},
+		Retry:       queue.RetryPolicy{MaxAttempts: c.Queue.MaxAttempts, Backoff: c.RetryBackoff()},
 		Log:         log,
 		Now:         time.Now,
 		wake:        make(chan struct{}, 1),

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,10 +39,20 @@ type Claude struct {
 	Dir string
 }
 
-// New returns a writer whose workspaces live under dir and whose agent
-// sessions live under dir/sessions.
-func New(bin, model, dir string) *Claude {
-	return &Claude{Runner: &agent.Runner{ClaudeBin: bin, SessionsDir: filepath.Join(dir, "sessions")}, Model: model, Timeout: 90 * time.Second, Dir: dir}
+// Settings configures the writer from the default profile.
+type Settings struct {
+	Model   string
+	Timeout time.Duration
+	// Dir is where writer-* temp workspaces are created.
+	Dir string
+	// SessionsDir is where agent sessions live.
+	SessionsDir string
+}
+
+// New returns a writer that runs the agent named claude, found on PATH. There
+// is deliberately no way to configure the binary.
+func New(s Settings) *Claude {
+	return &Claude{Runner: &agent.Runner{SessionsDir: s.SessionsDir}, Model: s.Model, Timeout: s.Timeout, Dir: s.Dir}
 }
 
 func (m *Claude) Write(ctx context.Context, input string, target *vault.Entry, tags []string, registry []vault.Tag, newTag bool) (Result, time.Duration, error) {

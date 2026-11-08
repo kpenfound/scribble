@@ -3,11 +3,13 @@ package routing
 import (
 	"testing"
 
+	"github.com/kpenfound/scribble/internal/config"
 	"github.com/kpenfound/scribble/internal/vault"
 )
 
 func TestThresholdBoundaries(t *testing.T) {
-	c := Thresholds{Amend: .75, Link: .75, Tag: .6} // the shipped defaults
+	d := config.DefaultConfig().Jev // the shipped *_threshold defaults
+	c := Thresholds{Amend: d.AmendThreshold, Link: d.LinkThreshold, Tag: d.TagThreshold}
 	today := "2026-11-05"
 	for _, test := range []struct {
 		date string

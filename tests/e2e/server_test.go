@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/kpenfound/agentcore/agent"
 	"github.com/kpenfound/agentcore/agent/agenttest"
 	"github.com/kpenfound/agentcore/jev/jevtest"
 	"github.com/kpenfound/agentcore/jev/systemone"
-	"gopkg.in/yaml.v3"
 )
 
 // This opt-in fixture runs the production binary. Only external providers are
@@ -162,22 +162,28 @@ func TestFixtureServer(t *testing.T) {
 		agenttest.Turn{ResultText: `{"text":"new tag for a conference talk","tags":["#idea/talk"],"new_tags":[{"name":"#idea/talk","meaning":"Conference talk ideas"}]}`},
 		agenttest.Turn{ResultText: `{"text":"Corrected conference talk","tags":["#idea/talk"],"new_tags":[]}`},
 	)
-	cfg := map[string]any{"vault": vault, "queue_db": filepath.Join(dir, "queue.db"), "listen": "127.0.0.1:18090", "retry_seconds": 1,
-		"jev":    map[string]any{"url": jevGateway.URL, "api_key_env": "SCRIBBLE_FAKE_JEV_KEY"},
-		"claude": map[string]any{"binary": claude.Bin}, "transcribe": map[string]any{"url": whisper.URL + "/v1/audio/transcriptions"},
-	}
-	encoded, err := yaml.Marshal(cfg)
-	if err != nil {
+	stateRoot := filepath.Join(dir, "root")
+	if err = os.MkdirAll(stateRoot, 0700); err != nil {
 		t.Fatal(err)
 	}
-	configPath := filepath.Join(dir, "config.yaml")
-	if err = os.WriteFile(configPath, encoded, 0600); err != nil {
+	cfg := map[string]any{"version": 1, "vault": vault,
+		"listen":     map[string]any{"web": "127.0.0.1:18090", "tailnet": ""},
+		"queue":      map[string]any{"retry_backoff": "1s"},
+		"jev":        map[string]any{"url": jevGateway.URL, "api_key_env": "SCRIBBLE_FAKE_JEV_KEY"},
+		"transcribe": map[string]any{"url": whisper.URL + "/v1/audio/transcriptions"},
+	}
+	var encoded bytes.Buffer
+	if err = toml.NewEncoder(&encoded).Encode(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(stateRoot, "config.toml"), encoded.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(root, "bin/scribble"), "-config", configPath)
-	cmd.Env = append(os.Environ(), "SCRIBBLE_FAKE_JEV_KEY=fixture")
+	cmd := exec.CommandContext(ctx, filepath.Join(root, "bin/scribble"), "-root", stateRoot)
+	// The writer runs `claude` from PATH; the scripted fake is that executable.
+	cmd.Env = append(os.Environ(), "SCRIBBLE_FAKE_JEV_KEY=fixture", "PATH="+claude.Dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err = cmd.Start(); err != nil {

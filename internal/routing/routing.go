@@ -54,6 +54,8 @@ type Settings struct {
 	URL       string
 	Model     string
 	APIKeyEnv string
+	// Timeout bounds one request; zero keeps agentcore's default.
+	Timeout time.Duration
 }
 
 func New(c Settings) *Jev {
@@ -62,6 +64,9 @@ func New(c Settings) *Jev {
 	settings.URL = c.URL
 	settings.Model = c.Model
 	settings.APIKeyEnv = c.APIKeyEnv
+	if c.Timeout > 0 {
+		settings.Timeout = c.Timeout
+	}
 	return &Jev{Judge: &jev.Judge{Config: func() jev.Settings { return settings }}}
 }
 

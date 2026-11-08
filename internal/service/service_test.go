@@ -32,7 +32,7 @@ func testConfig(t *testing.T) config.Config {
 	t.Helper()
 	c := config.DefaultConfig()
 	c.Vault = t.TempDir()
-	c.QueueDB = filepath.Join(t.TempDir(), "queue.db")
+	c.Paths = config.PathsAt(t.TempDir())
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestAmendNewTagUndoUsingAgentcore(t *testing.T) {
 	endpoint := jevtest.NewServer(t, scripted(path+"#^scr-ab12", .75, .8, map[string]float64{"#idea/talk": .8}, "none", "last"))
 	s.Router = &routing.Jev{Judge: &jev.Judge{Config: endpoint.Settings}}
 	fake := agenttest.Session(t, agent.AgentClaude, agenttest.Turn{ResultText: `{"text":"original plus details","tags":["#project/demo"],"new_tags":[{"name":"#project/demo","meaning":"Demo project"}]}`})
-	claude(s).Runner.ClaudeBin = fake.Bin
+	t.Setenv("PATH", fake.Dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	j, _ := s.Store.Submit(queue.Job{ID: "amend", CapturedAt: time.Now().Format(time.RFC3339), Text: "plus details"})
 	if err := s.process(context.Background(), j); err != nil {
 		t.Fatal(err)

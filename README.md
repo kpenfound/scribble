@@ -10,7 +10,7 @@ Requires Go 1.25+, a local vault, a TypeSafe API key, and Claude Code for amendm
 
 ```sh
 mkdir -p .local/vault .local/state
-cp config.example.yaml .local/config.yaml
+cp internal/config/config.example.toml .local/config.toml
 # Edit vault and queue_db to absolute paths under .local.
 # Keep listen: 127.0.0.1:8090.
 export TYPESAFE_API_KEY='your-key'
