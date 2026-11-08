@@ -1,4 +1,4 @@
-package scribble
+package vault
 
 import (
 	"bytes"
@@ -18,11 +18,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const tagsPath = "Scribble/Tags.md"
-const tagsHeader = "| Tag | Meaning | Uses | Last used |\n| --- | --- | --- | --- |\n"
+const TagsPath = "Scribble/Tags.md"
+const TagsHeader = "| Tag | Meaning | Uses | Last used |\n| --- | --- | --- | --- |\n"
 
-var blockRE = regexp.MustCompile(` \^(scr-[a-z0-9]{4})$`)
-var tagRE = regexp.MustCompile(`^#[a-zA-Z_][a-zA-Z0-9_-]*(/[a-zA-Z0-9_-]+)*$`)
+var BlockRE = regexp.MustCompile(` \^(scr-[a-z0-9]{4})$`)
+var TagRE = regexp.MustCompile(`^#[a-zA-Z_][a-zA-Z0-9_-]*(/[a-zA-Z0-9_-]+)*$`)
 var inlineTagRE = regexp.MustCompile(`(?:^|\s)(#[a-zA-Z_][a-zA-Z0-9_-]*(?:/[a-zA-Z0-9_-]+)*)`)
 var ErrConflict = errors.New("vault content changed; refusing to overwrite an edited entry")
 
@@ -56,14 +56,15 @@ type Plan struct {
 	Undo   bool      `json:"undo"`
 }
 type Vault struct {
-	lock   *os.File
-	root   *os.Root
-	config Config
-	now    func() time.Time
+	lock     *os.File
+	root     *os.Root
+	settings Settings
+	now      func() time.Time
 }
 
-func OpenVault(c Config, now func() time.Time) (*Vault, error) {
-	root, err := os.OpenRoot(c.Vault)
+// Open locks and opens the vault. now is injectable so tests can cross midnight.
+func Open(s Settings, now func() time.Time) (*Vault, error) {
+	root, err := os.OpenRoot(s.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -80,49 +81,55 @@ func OpenVault(c Config, now func() time.Time) (*Vault, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Vault{root: root, lock: lock, config: c, now: now}, nil
+	return &Vault{root: root, lock: lock, settings: s, now: now}, nil
 }
 func (v *Vault) Close() error {
 	_ = unix.Flock(int(v.lock.Fd()), unix.LOCK_UN)
 	_ = v.lock.Close()
 	return v.root.Close()
 }
-func (v *Vault) read(path string) ([]byte, error) {
+
+// Read returns the file bytes, or nil when the file does not exist.
+func (v *Vault) Read(path string) ([]byte, error) {
 	b, e := v.root.ReadFile(path)
 	if errors.Is(e, os.ErrNotExist) {
 		return nil, nil
 	}
 	return b, e
 }
-func (v *Vault) dailyPath(t time.Time) (string, error) {
-	dir, layout, err := v.config.dailySettings(v.root)
-	return filepath.Join(dir, t.In(v.config.location).Format(layout)+".md"), err
+
+// DailyPath returns the vault-relative daily note path for t.
+func (v *Vault) DailyPath(t time.Time) (string, error) {
+	dir, layout, err := v.settings.dailySettings(v.root)
+	return filepath.Join(dir, t.In(v.settings.Location).Format(layout)+".md"), err
 }
+
+// Context returns the lookback-window entries and the tag registry.
 func (v *Vault) Context() ([]Entry, []Tag, error) {
-	now := v.now().In(v.config.location)
+	now := v.now().In(v.settings.Location)
 	var entries []Entry
-	for i := 0; i <= v.config.LookbackDays; i++ {
+	for i := 0; i <= v.settings.LookbackDays; i++ {
 		date := now.AddDate(0, 0, -i)
-		path, err := v.dailyPath(date)
+		path, err := v.DailyPath(date)
 		if err != nil {
 			return nil, nil, err
 		}
-		b, err := v.read(path)
+		b, err := v.Read(path)
 		if err != nil {
 			return nil, nil, err
 		}
 		for _, line := range scribbleLines(b) {
-			m := blockRE.FindStringSubmatch(line)
+			m := BlockRE.FindStringSubmatch(line)
 			if m != nil && strings.HasPrefix(line, "- ") {
-				entries = append(entries, Entry{ID: filepath.ToSlash(path) + "#^" + m[1], Block: m[1], Path: path, Date: v.config.today(date), Line: line})
+				entries = append(entries, Entry{ID: filepath.ToSlash(path) + "#^" + m[1], Block: m[1], Path: path, Date: v.settings.Today(date), Line: line})
 			}
 		}
 	}
-	b, err := v.read(tagsPath)
+	b, err := v.Read(TagsPath)
 	if err != nil {
 		return nil, nil, err
 	}
-	tags, err := parseTags(b)
+	tags, err := ParseTags(b)
 	return entries, tags, err
 }
 
@@ -200,6 +207,12 @@ func scribbleLines(b []byte) []string {
 	}
 	return out
 }
+
+// FindEntry reports the text of the scribble line carrying block, if present.
+func FindEntry(b []byte, block string) (string, bool, error) {
+	l, found, err := findEntry(b, block)
+	return l.text, found, err
+}
 func findEntry(b []byte, block string) (lineSpan, bool, error) {
 	start, end, ok := section(b)
 	if !ok {
@@ -230,7 +243,7 @@ func newline(b []byte) string {
 	}
 	return "\n"
 }
-func editNote(b []byte, p Plan) ([]byte, error) {
+func EditNote(b []byte, p Plan) ([]byte, error) {
 	l, found, err := findEntry(b, p.Block)
 	if err != nil {
 		return nil, err
@@ -276,7 +289,7 @@ func editNote(b []byte, p Plan) ([]byte, error) {
 	}
 	return append(append(append([]byte{}, out[:end]...), []byte(insert)...), out[end:]...), nil
 }
-func newBlock(b []byte) (string, error) {
+func NewBlock(b []byte) (string, error) {
 	for i := 0; i < 100; i++ {
 		var s strings.Builder
 		s.WriteString("scr-")
@@ -294,7 +307,7 @@ func newBlock(b []byte) (string, error) {
 	}
 	return "", errors.New("unable to allocate unique block ID")
 }
-func parseTags(b []byte) ([]Tag, error) {
+func ParseTags(b []byte) ([]Tag, error) {
 	var tags []Tag
 	seen := map[string]bool{}
 	for _, l := range lines(b) {
@@ -307,7 +320,7 @@ func parseTags(b []byte) ([]Tag, error) {
 		}
 		name := strings.TrimSpace(cells[1])
 		uses, err := strconv.Atoi(strings.TrimSpace(cells[3]))
-		if !tagRE.MatchString(name) || err != nil || uses < 0 || seen[name] {
+		if !TagRE.MatchString(name) || err != nil || uses < 0 || seen[name] {
 			return nil, fmt.Errorf("invalid or duplicate registry tag %q", name)
 		}
 		seen[name] = true
@@ -318,7 +331,7 @@ func parseTags(b []byte) ([]Tag, error) {
 func tagLine(t Tag) string {
 	return fmt.Sprintf("| %s | %s | %d | %s |", t.Name, t.Meaning, t.Uses, t.LastUsed)
 }
-func tagsIn(line string) []string {
+func TagsIn(line string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, m := range inlineTagRE.FindAllStringSubmatch(line, -1) {
@@ -329,7 +342,7 @@ func tagsIn(line string) []string {
 	}
 	return out
 }
-func makeTagEdits(registry []Tag, names []string, created []Tag, date string) []RowEdit {
+func MakeTagEdits(registry []Tag, names []string, created []Tag, date string) []RowEdit {
 	byName := map[string]Tag{}
 	for _, t := range registry {
 		byName[t.Name] = t
@@ -354,13 +367,13 @@ func makeTagEdits(registry []Tag, names []string, created []Tag, date string) []
 	}
 	return edits
 }
-func editTags(b []byte, edits []RowEdit) ([]byte, error) {
-	if _, err := parseTags(b); err != nil {
+func EditTags(b []byte, edits []RowEdit) ([]byte, error) {
+	if _, err := ParseTags(b); err != nil {
 		return nil, err
 	}
 	out := append([]byte{}, b...)
 	if len(out) == 0 {
-		out = []byte(tagsHeader)
+		out = []byte(TagsHeader)
 	}
 	for _, edit := range edits {
 		var current *lineSpan
@@ -418,7 +431,7 @@ func (v *Vault) update(path string, guard func() error, edit func([]byte) ([]byt
 		return err
 	}
 	for attempt := 0; attempt < 8; attempt++ {
-		before, err := v.read(path)
+		before, err := v.Read(path)
 		if err != nil {
 			return err
 		}
@@ -457,7 +470,7 @@ func (v *Vault) update(path string, guard func() error, edit func([]byte) ([]byt
 			_ = v.root.Remove(temp)
 			return err
 		}
-		latest, err := v.read(path)
+		latest, err := v.Read(path)
 		if err != nil {
 			_ = v.root.Remove(temp)
 			return err
@@ -487,13 +500,13 @@ func (v *Vault) update(path string, guard func() error, edit func([]byte) ([]byt
 }
 func (v *Vault) Apply(p Plan) error {
 	today := func() error {
-		if p.Date != v.config.today(v.now()) {
+		if p.Date != v.settings.Today(v.now()) {
 			return errors.New("past notes are read-only")
 		}
 		return nil
 	}
 	// Create exclusively, never truncate an existing daily note.
-	b, err := v.read(p.Path)
+	b, err := v.Read(p.Path)
 	if err != nil {
 		return err
 	}
@@ -519,8 +532,8 @@ func (v *Vault) Apply(p Plan) error {
 			return err
 		}
 	}
-	if err := v.update(p.Path, today, func(b []byte) ([]byte, error) { return editNote(b, p) }); err != nil {
+	if err := v.update(p.Path, today, func(b []byte) ([]byte, error) { return EditNote(b, p) }); err != nil {
 		return err
 	}
-	return v.update(tagsPath, func() error { return nil }, func(b []byte) ([]byte, error) { return editTags(b, p.Tags) })
+	return v.update(TagsPath, func() error { return nil }, func(b []byte) ([]byte, error) { return EditTags(b, p.Tags) })
 }

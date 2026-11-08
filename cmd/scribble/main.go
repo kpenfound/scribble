@@ -12,7 +12,8 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/kpenfound/scribble/internal/scribble"
+	"github.com/kpenfound/scribble/internal/config"
+	"github.com/kpenfound/scribble/internal/service"
 	"github.com/kpenfound/scribble/internal/web"
 )
 
@@ -25,7 +26,7 @@ func main() {
 func run() error {
 	path := flag.String("config", "config.yaml", "YAML config path")
 	flag.Parse()
-	c, err := scribble.LoadConfig(*path)
+	c, err := config.LoadConfig(*path)
 	if err != nil {
 		return err
 	}
@@ -35,7 +36,7 @@ func run() error {
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
-	service, err := scribble.NewService(c, log)
+	service, err := service.NewService(c, log)
 	if err != nil {
 		return err
 	}

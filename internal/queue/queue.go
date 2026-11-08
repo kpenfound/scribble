@@ -1,4 +1,5 @@
-package scribble
+// Package queue is the durable, FIFO job queue backed by SQLite.
+package queue
 
 import (
 	"database/sql"
@@ -12,26 +13,28 @@ import (
 
 	"golang.org/x/sys/unix"
 	_ "modernc.org/sqlite"
+
+	"github.com/kpenfound/scribble/internal/vault"
 )
 
 type Job struct {
-	ID         string `json:"id"`
-	CapturedAt string `json:"captured_at"`
-	Text       string `json:"-"`
-	Audio      []byte `json:"-"`
-	MIME       string `json:"-"`
-	State      string `json:"state"`
-	Attempts   int    `json:"attempts"`
-	NextAt     int64  `json:"-"`
-	Error      string `json:"error,omitempty"`
-	Plan       *Plan  `json:"-"`
-	Line       string `json:"line,omitempty"`
-	Previous   string `json:"previous,omitempty"`
-	Action     string `json:"action,omitempty"`
-	WrittenAt  string `json:"written_at,omitempty"`
-	Date       string `json:"date,omitempty"`
-	Undone     bool   `json:"undone"`
-	Sequence   int64  `json:"sequence"`
+	ID         string      `json:"id"`
+	CapturedAt string      `json:"captured_at"`
+	Text       string      `json:"-"`
+	Audio      []byte      `json:"-"`
+	MIME       string      `json:"-"`
+	State      string      `json:"state"`
+	Attempts   int         `json:"attempts"`
+	NextAt     int64       `json:"-"`
+	Error      string      `json:"error,omitempty"`
+	Plan       *vault.Plan `json:"-"`
+	Line       string      `json:"line,omitempty"`
+	Previous   string      `json:"previous,omitempty"`
+	Action     string      `json:"action,omitempty"`
+	WrittenAt  string      `json:"written_at,omitempty"`
+	Date       string      `json:"date,omitempty"`
+	Undone     bool        `json:"undone"`
+	Sequence   int64       `json:"sequence"`
 }
 type Store struct {
 	db   *sql.DB
@@ -97,7 +100,7 @@ func scanJob(row interface{ Scan(...any) error }) (*Job, error) {
 		return nil, err
 	}
 	if plan != "" {
-		j.Plan = &Plan{}
+		j.Plan = &vault.Plan{}
 		if err = json.Unmarshal([]byte(plan), j.Plan); err != nil {
 			return nil, err
 		}
@@ -144,7 +147,7 @@ func (s *Store) Transcribed(id, text string) error {
 	_, err := s.db.Exec(`UPDATE jobs SET text=? WHERE id=?`, text, id)
 	return err
 }
-func (s *Store) Prepare(id string, p Plan) error {
+func (s *Store) Prepare(id string, p vault.Plan) error {
 	b, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -152,17 +155,24 @@ func (s *Store) Prepare(id string, p Plan) error {
 	_, err = s.db.Exec(`UPDATE jobs SET plan=? WHERE id=?`, string(b), id)
 	return err
 }
-func (s *Store) Complete(id string, p Plan, now time.Time) error {
+func (s *Store) Complete(id string, p vault.Plan, now time.Time) error {
 	_, err := s.db.Exec(`UPDATE jobs SET state='written',line=?,previous=?,action=?,written_at=?,date=?,error='',audio=NULL WHERE id=?`, p.After, p.Before, p.Action, now.Format(time.RFC3339), p.Date, id)
 	return err
 }
-func (s *Store) Fail(j *Job, c Config, problem error, now time.Time) error {
+
+// RetryPolicy bounds automatic attempts and sets the first backoff step.
+type RetryPolicy struct {
+	MaxAttempts int
+	Backoff     time.Duration
+}
+
+func (s *Store) Fail(j *Job, c RetryPolicy, problem error, now time.Time) error {
 	attempts := j.Attempts + 1
 	state := "queued"
 	if attempts >= c.MaxAttempts {
 		state = "failed"
 	}
-	delay := time.Duration(c.RetrySeconds) * time.Second * time.Duration(1<<min(attempts-1, 8))
+	delay := c.Backoff * time.Duration(1<<min(attempts-1, 8))
 	_, err := s.db.Exec(`UPDATE jobs SET attempts=?,state=?,next_at=?,error=? WHERE id=?`, attempts, state, now.Add(delay).UnixMilli(), problem.Error(), j.ID)
 	return err
 }
@@ -184,7 +194,7 @@ func (s *Store) Retry(id string) error {
 
 type UndoIntent struct {
 	JobID string
-	Plan  Plan
+	Plan  vault.Plan
 }
 
 func (s *Store) UndoIntent() (*UndoIntent, error) {
@@ -236,4 +246,15 @@ func (s *Store) Check() error {
 		return fmt.Errorf("sqlite: %s", result)
 	}
 	return nil
+}
+
+// Input limits and normalisation shared by the HTTP layer and transcription.
+const MaxText = 16 * 1024
+
+// NormalizeText collapses newlines to spaces and trims the result.
+func NormalizeText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.TrimSpace(s)
 }

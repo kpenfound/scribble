@@ -1,8 +1,9 @@
-package scribble
+// Package config holds scribble's configuration. The YAML form here is
+// temporary; the config-toml unit replaces it.
+package config
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -10,10 +11,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/kpenfound/scribble/internal/vault"
 )
 
 type Config struct {
@@ -88,7 +90,7 @@ func (c *Config) Validate() error {
 	if c.location, err = time.LoadLocation(c.Timezone); err != nil {
 		return fmt.Errorf("timezone: %w", err)
 	}
-	if c.layout, err = momentLayout(c.DateFormat); err != nil {
+	if c.layout, err = vault.MomentLayout(c.DateFormat); err != nil {
 		return err
 	}
 	if c.DailyDir != "" && !filepath.IsLocal(c.DailyDir) {
@@ -127,72 +129,13 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Explicitly reject unsupported Moment tokens rather than silently file a note
-// under a wrong name. Bracketed literals and nested year/month folders work.
-func momentLayout(format string) (string, error) {
-	var out strings.Builder
-	for len(format) > 0 {
-		if format[0] == '[' {
-			i := strings.IndexByte(format, ']')
-			if i < 0 {
-				return "", errors.New("unclosed date literal")
-			}
-			out.WriteString(format[1:i])
-			format = format[i+1:]
-			continue
-		}
-		matched := false
-		for _, pair := range [][2]string{{"YYYY", "2006"}, {"MM", "01"}, {"DD", "02"}, {"M", "1"}, {"D", "2"}} {
-			if strings.HasPrefix(format, pair[0]) {
-				out.WriteString(pair[1])
-				format = format[len(pair[0]):]
-				matched = true
-				break
-			}
-		}
-		if matched {
-			continue
-		}
-		ch := format[0]
-		if ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' {
-			return "", fmt.Errorf("unsupported date_format token near %q; use YYYY, MM, DD and [literals]", format)
-		}
-		out.WriteByte(ch)
-		format = format[1:]
-	}
-	layout := out.String()
-	if !filepath.IsLocal(time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC).Format(layout)+".md") || !strings.Contains(layout, "2006") || !strings.Contains(layout, "01") || !strings.Contains(layout, "02") {
-		return "", errors.New("date_format must include YYYY, MM and DD and stay within the vault")
-	}
-	return layout, nil
-}
+// Location is the configured time zone; valid after Validate.
+func (c Config) Location() *time.Location { return c.location }
 
-func (c Config) dailySettings(root *os.Root) (string, string, error) {
-	b, err := root.ReadFile(".obsidian/daily-notes.json")
-	if errors.Is(err, os.ErrNotExist) {
-		return c.DailyDir, c.layout, nil
-	}
-	if err != nil {
-		return "", "", err
-	}
-	var settings struct {
-		Folder *string `json:"folder"`
-		Format *string `json:"format"`
-	}
-	if err := json.Unmarshal(b, &settings); err != nil {
-		return "", "", fmt.Errorf("daily-notes.json: %w", err)
-	}
-	dir, layout := c.DailyDir, c.layout
-	if settings.Folder != nil {
-		dir = *settings.Folder
-	}
-	if dir != "" && !filepath.IsLocal(dir) {
-		return "", "", errors.New("configured Obsidian daily folder escapes vault")
-	}
-	if settings.Format != nil && *settings.Format != "" {
-		layout, err = momentLayout(*settings.Format)
-	}
-	return dir, layout, err
-}
+// Today formats now as the calendar date in the configured time zone.
+func (c Config) Today(now time.Time) string { return now.In(c.location).Format("2006-01-02") }
 
-func (c Config) today(now time.Time) string { return now.In(c.location).Format("2006-01-02") }
+// VaultSettings is the view of the config that the vault package needs.
+func (c Config) VaultSettings() vault.Settings {
+	return vault.Settings{Dir: c.Vault, DailyDir: c.DailyDir, Layout: c.layout, Location: c.location, LookbackDays: c.LookbackDays}
+}

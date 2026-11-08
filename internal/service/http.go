@@ -1,4 +1,4 @@
-package scribble
+package service
 
 import (
 	"encoding/json"
@@ -9,9 +9,10 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/kpenfound/scribble/internal/queue"
 )
 
-const maxText = 16 * 1024
 const maxUpload = 25 * 1024 * 1024
 
 var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -88,7 +89,7 @@ func (s *Service) Handler(frontend http.Handler) http.Handler {
 }
 func (s *Service) submit(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUpload+(1<<20))
-	var j Job
+	var j queue.Job
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			problem(w, 400, err)
@@ -122,7 +123,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request) {
 			CapturedAt string `json:"captured_at"`
 			Text       string `json:"text"`
 		}
-		decoder := json.NewDecoder(io.LimitReader(r.Body, maxText+4096))
+		decoder := json.NewDecoder(io.LimitReader(r.Body, queue.MaxText+4096))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&input); err != nil {
 			problem(w, 400, err)
@@ -132,8 +133,8 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request) {
 			problem(w, 400, fmt.Errorf("expected one JSON object"))
 			return
 		}
-		j.ID, j.CapturedAt, j.Text = input.ID, input.CapturedAt, normalizeInput(input.Text)
-		if j.Text == "" || len(j.Text) > maxText || strings.ContainsRune(j.Text, 0) {
+		j.ID, j.CapturedAt, j.Text = input.ID, input.CapturedAt, queue.NormalizeText(input.Text)
+		if j.Text == "" || len(j.Text) > queue.MaxText || strings.ContainsRune(j.Text, 0) {
 			problem(w, 400, fmt.Errorf("text must be between 1 and 16384 bytes and contain no NUL"))
 			return
 		}
@@ -163,7 +164,7 @@ func (s *Service) status(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err)
 		return
 	}
-	jsonResponse(w, 200, map[string]any{"jobs": jobs, "today": s.Config.today(s.Now())})
+	jsonResponse(w, 200, map[string]any{"jobs": jobs, "today": s.Config.Today(s.Now())})
 }
 func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	if _, ok := w.(http.Flusher); !ok {
@@ -181,7 +182,7 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		b, err := json.Marshal(map[string]any{"jobs": jobs, "today": s.Config.today(s.Now())})
+		b, err := json.Marshal(map[string]any{"jobs": jobs, "today": s.Config.Today(s.Now())})
 		if err != nil {
 			return err
 		}

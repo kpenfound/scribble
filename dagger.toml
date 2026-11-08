@@ -3,7 +3,7 @@
 source = "github.com/dagger/go@v0.2.0"
 
 [modules.go.settings]
-base = "golang:1.25-bookworm"
+base = "golang:1.26-bookworm"
 goflags = "-race -count=1"
 
 [modules.staticcheck]

@@ -1,9 +1,9 @@
 module github.com/kpenfound/scribble
 
-go 1.25.0
+go 1.26.0
 
 require (
-	github.com/kpenfound/agentcore v1.1.0
+	github.com/kpenfound/agentcore v1.2.0
 	golang.org/x/sys v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.44.3
