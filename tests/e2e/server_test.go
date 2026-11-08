@@ -181,7 +181,7 @@ func TestFixtureServer(t *testing.T) {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(root, "bin/scribble"), "-root", stateRoot)
+	cmd := exec.CommandContext(ctx, filepath.Join(root, "bin/scribble"), "serve", "--root", stateRoot)
 	// The writer runs `claude` from PATH; the scripted fake is that executable.
 	cmd.Env = append(os.Environ(), "SCRIBBLE_FAKE_JEV_KEY=fixture", "PATH="+claude.Dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd.Stdout = os.Stdout
