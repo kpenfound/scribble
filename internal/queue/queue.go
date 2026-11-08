@@ -176,6 +176,10 @@ func (s *Store) Fail(j *Job, c RetryPolicy, problem error, now time.Time) error 
 	_, err := s.db.Exec(`UPDATE jobs SET attempts=?,state=?,next_at=?,error=? WHERE id=?`, attempts, state, now.Add(delay).UnixMilli(), problem.Error(), j.ID)
 	return err
 }
+
+// ErrNotFailed is returned by Retry for a job that is not in the failed state.
+var ErrNotFailed = errors.New("only failed jobs can be retried")
+
 func (s *Store) Retry(id string) error {
 	// Changing the sequence places a manual retry after already queued captures.
 	result, err := s.db.Exec(`UPDATE jobs SET seq=(SELECT COALESCE(MAX(seq),0)+1 FROM jobs),state='queued',attempts=0,next_at=0,error='' WHERE id=? AND state='failed'`, id)
@@ -187,7 +191,7 @@ func (s *Store) Retry(id string) error {
 		return err
 	}
 	if n != 1 {
-		return errors.New("only failed jobs can be retried")
+		return ErrNotFailed
 	}
 	return nil
 }

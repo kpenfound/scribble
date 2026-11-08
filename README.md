@@ -58,13 +58,15 @@ The [implementation plan](docs/IMPLEMENTATION.md) records the decisions made whi
 
 | Endpoint | Behavior |
 | --- | --- |
-| `POST /thoughts` | Persist a text JSON body or audio multipart upload; return `202` and the job immediately. |
-| `GET /thoughts/{id}` | Status of a known job. |
-| `GET /status` | Pending/failed jobs, the last completed write, and today's local date. |
-| `GET /events` | SSE `status` snapshots; reconnects get current durable state. |
-| `POST /thoughts/{id}/undo` | Undo only the most recent completed write, only today. |
-| `POST /thoughts/{id}/retry` | Requeue a failed job at the back of the queue. |
-| `GET /healthz` | Service/database health. |
+| `POST /v1/thoughts` | Persist a text JSON body or audio multipart upload; return `202` and the job immediately. |
+| `GET /v1/thoughts/{id}` | Status of a known job. |
+| `GET /v1/status` | Pending/failed jobs, the last completed write, and today's local date. |
+| `GET /v1/events` | SSE `status` snapshots; reconnects get current durable state. |
+| `POST /v1/thoughts/{id}/undo` | Undo only the most recent completed write, only today. |
+| `POST /v1/thoughts/{id}/retry` | Requeue a failed job at the back of the queue. |
+| `GET /v1/health` | Service/database health, build information and tailnet state. |
+
+Failures answer `{"error":{"code","message"}}`; the full contract is `docs/openapi.json`, generated from `service.Routes` by `dagger generate`.
 
 Text body: `{"id":"<client UUID>","captured_at":"2026-11-05T12:00:00Z","text":"A thought"}`. Audio multipart uses `id`, `captured_at`, and an `audio` file with its audio content type. Text is limited to 16 KiB; audio to 25 MiB. The PWA stops recording after two minutes. Retrying a UUID returns the existing job without changing its payload.
 

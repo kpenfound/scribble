@@ -69,7 +69,7 @@ sudo install -m 0644 deploy/scribble.service deploy/obsidian-sync.service /etc/s
 sudo systemctl daemon-reload
 sudo systemctl enable --now obsidian-sync scribble
 sudo systemctl status scribble obsidian-sync
-curl --fail http://127.0.0.1:8090/healthz
+curl --fail http://127.0.0.1:8090/v1/health
 sudo tailscale serve --bg http://127.0.0.1:8090
 tailscale serve status
 ```

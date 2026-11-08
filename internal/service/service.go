@@ -37,6 +37,9 @@ type Service struct {
 	Retry       queue.RetryPolicy
 	Log         *slog.Logger
 	Now         func() time.Time
+	// Tailnet reports the tailnet listener's state for /v1/health. A nil
+	// Tailnet reports the tailnet as disabled.
+	Tailnet     TailnetStatuser
 	wake        chan struct{}
 	undo        chan undoRequest
 	mu          sync.Mutex
@@ -381,13 +384,13 @@ func (s *Service) performUndo(id string) error {
 		return err
 	}
 	if last == nil || last.ID != id {
-		return errors.New("undo only applies to the most recent completed write")
+		return refusal("undo only applies to the most recent completed write")
 	}
 	if last.Undone {
 		return nil
 	}
 	if last.Date != s.Config.Today(s.Now()) {
-		return errors.New("undo only works on today's note")
+		return refusal("undo only works on today's note")
 	}
 	p := *last.Plan
 	p.Before, p.After = p.After, p.Before

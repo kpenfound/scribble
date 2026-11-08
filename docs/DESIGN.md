@@ -109,7 +109,7 @@ Submitting never waits on processing. Thoughts are queued on the phone and on th
 
 **Backend queue**
 
-- `POST /thoughts` persists the job to SQLite and returns `202` with the job ID immediately. Voice uploads are stored with the job.
+- `POST /v1/thoughts` persists the job to SQLite and returns `202` with the job ID immediately. Voice uploads are stored with the job.
 - A single worker processes jobs FIFO. The queue is non-blocking for the client but serial in processing, because a follow-up must see the entry it refers to.
 - Job states are `queued → transcribing → routing → written`, or `failed`. Failed jobs retry with backoff, then stop and are shown in the PWA.
 - The PWA follows job state over SSE, which is how the last-write card updates.

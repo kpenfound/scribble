@@ -9,7 +9,7 @@ test.describe.serial('capture lifecycle with the real binary', () => {
     await expect(page.locator('#result')).toContainText('A raw thought — punctuation stays.');
     await expect(page.locator('#result')).toContainText(/\^scr-[a-z0-9]{4}/);
     const data = { id: randomUUID(), captured_at: new Date().toISOString(), text: 'Only once' };
-    const first = await request.post('/thoughts', { data }); const second = await request.post('/thoughts', { data });
+    const first = await request.post('/v1/thoughts', { data }); const second = await request.post('/v1/thoughts', { data });
     expect(first.status()).toBe(202); expect(second.status()).toBe(202);
     expect((await first.json()).id).toBe((await second.json()).id);
     await expect(page.locator('#result')).toContainText('Only once');
@@ -54,12 +54,12 @@ test.describe.serial('capture lifecycle with the real binary', () => {
   });
   test('voice uploads follow transcription and expose transcription failures', async ({ page, request }) => {
     await page.goto('/');
-    const response = await request.post('/thoughts', { multipart: {
+    const response = await request.post('/v1/thoughts', { multipart: {
       id: randomUUID(), captured_at: new Date().toISOString(),
       audio: { name: 'fixture.wav', mimeType: 'audio/wav', buffer: Buffer.from('RIFF fixture audio') }
     } });
     expect(response.status()).toBe(202); await expect(page.locator('#result')).toContainText('Voice fixture thought');
-    const failed = await request.post('/thoughts', { multipart: {
+    const failed = await request.post('/v1/thoughts', { multipart: {
       id: randomUUID(), captured_at: new Date().toISOString(),
       audio: { name: 'failure.wav', mimeType: 'audio/wav', buffer: Buffer.from('unavailable fixture') }
     } });
@@ -86,5 +86,44 @@ test.describe.serial('capture lifecycle with the real binary', () => {
     await expect(page.locator('#result')).toContainText('Voice fixture thought'); await waitWritten(page);
     await expect(page.locator('body')).toHaveJSProperty('scrollWidth', 390);
     await page.screenshot({ path: 'test-results/mobile-capture.png', fullPage: true }); await context.close();
+  });
+  test('a refused undo or retry shows the server message', async ({ page, request }) => {
+    // The server's own refusals: a request aimed at a job it cannot act on is
+    // answered with the error envelope, and the PWA shows its message.
+    const older = randomUUID();
+    expect((await request.post('/v1/thoughts', { data: { id: older, captured_at: new Date().toISOString(), text: 'An older written thought' } })).status()).toBe(202);
+    await expect.poll(async () => (await (await request.get(`/v1/thoughts/${older}`)).json()).state).toBe('written');
+    await page.goto('/'); await submit(page, 'The latest written thought'); await waitWritten(page);
+    const refuse = async action => {
+      const pattern = new RegExp(`/v1/thoughts/[^/]+/${action}$`);
+      await page.route(pattern, route => route.continue({ url: new URL(`/v1/thoughts/${older}/${action}`, page.url()).href }));
+      return pattern;
+    };
+    const undoRefusal = await refuse('undo');
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.locator('#notice')).toBeVisible();
+    await expect(page.locator('#notice')).toHaveText('undo only applies to the most recent completed write');
+    await expect(page.locator('#action')).not.toHaveText('Undone');
+    await page.unroute(undoRefusal);
+    await submit(page, 'fail routing fixture'); await expect(page.locator('#action')).toHaveText('Couldn’t file this thought');
+    await refuse('retry');
+    await page.locator('#retry').click();
+    await expect(page.locator('#notice')).toHaveText('only failed jobs can be retried');
+    await expect(page.locator('#notice')).not.toContainText('[object Object]');
+  });
+  test('a capture the server does not accept stays in the outbox with the server message', async ({ page }) => {
+    await page.goto('/');
+    // Blank text is a server-side validation failure the PWA cannot predict.
+    await page.route('**/v1/thoughts', route => route.request().method() === 'POST' ? route.continue({ postData: JSON.stringify({ id: randomUUID(), captured_at: new Date().toISOString(), text: ' ' }) }) : route.continue());
+    await submit(page, 'Held back by the server');
+    await expect(page.locator('#notice')).toContainText('text must be between 1 and 16384 bytes and contain no NUL');
+    await expect(page.locator('#notice')).toContainText('Your capture is still saved on this device.');
+    await expect(page.locator('#notice')).not.toContainText('[object Object]');
+    await expect(page.locator('#outbox')).toContainText('1 thought saved');
+    // Once the server accepts it, the same item sends and leaves the outbox.
+    await page.unroute('**/v1/thoughts');
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(page.locator('#result')).toContainText('Held back by the server'); await waitWritten(page);
+    await expect(page.locator('#outbox')).toBeHidden();
   });
 });

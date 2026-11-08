@@ -39,7 +39,7 @@ async function render() {
   }
 }
 async function status() {
-  const response = await fetch('/status', { cache: 'no-store' });
+  const response = await fetch('/v1/status', { cache: 'no-store' });
   if (!response.ok) throw new Error('Could not read capture status.');
   await acceptStatus(await response.json());
 }
@@ -75,9 +75,14 @@ $('capture').addEventListener('submit', async event => {
   finally { $('send').disabled = false; }
 });
 $('thought').addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') $('capture').requestSubmit(); });
+// The server answers failures with {"error":{"code","message"}}.
+async function errorMessage(response, fallback) {
+  try { const message = (await response.json()).error?.message; if (typeof message === 'string' && message) return message; } catch { /* not JSON */ }
+  return fallback;
+}
 async function mutate(id, action) {
-  const response = await fetch(`/thoughts/${id}/${action}`, { method: 'POST' });
-  if (!response.ok) throw new Error((await response.json()).error || 'Request failed.');
+  const response = await fetch(`/v1/thoughts/${id}/${action}`, { method: 'POST' });
+  if (!response.ok) throw new Error(await errorMessage(response, 'Request failed.'));
   await status();
 }
 async function retryJob(id) { await mutate(id, 'retry'); selected = id; await setMeta('selected', id); await render(); }
@@ -113,7 +118,7 @@ async function start() {
     try { registration = await navigator.serviceWorker.register('/sw.js', { type: 'module' }); } catch (error) { notice(`Offline setup failed: ${error.message}`); }
     navigator.serviceWorker.addEventListener('message', () => { void sync(); });
   }
-  const events = new EventSource('/events');
+  const events = new EventSource('/v1/events');
   events.onopen = () => { $('connection').textContent = 'Connected'; $('connection').className = 'online'; void sync(); };
   events.onerror = () => { $('connection').textContent = 'Offline · saved here'; $('connection').className = ''; };
   events.addEventListener('status', event => { acceptStatus(JSON.parse(event.data)).catch(error => notice(error.message)); });

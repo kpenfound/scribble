@@ -10,7 +10,7 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
     command: 'go build -o bin/scribble ./cmd/scribble && SCRIBBLE_E2E=1 go test ./tests/e2e -run TestFixtureServer -count=1 -v -timeout=15m',
-    url: 'http://127.0.0.1:18090/healthz',
+    url: 'http://127.0.0.1:18090/v1/health',
     reuseExistingServer: false,
     timeout: 120000
   }

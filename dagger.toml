@@ -5,6 +5,9 @@ source = "github.com/dagger/go@v0.2.0"
 [modules.go.settings]
 base = "golang:1.26-bookworm"
 goflags = "-race -count=1"
+# `dagger generate` runs go:generate here; it writes docs/openapi.json and the
+# generator's stale check fails when the committed copy differs.
+generate = ["internal/openapi"]
 
 [modules.staticcheck]
 source = "github.com/dagger/go/staticcheck@v0.2.0"

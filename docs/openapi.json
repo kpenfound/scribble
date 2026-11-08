@@ -1,0 +1,463 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Scribble local API",
+    "version": "1",
+    "description": "Scribble serves this API over its Unix socket and, when configured, on a\nloopback address (listen.web) and on the tailnet (listen.tailnet). There is no\nauthentication: the socket, the loopback interface and tailnet membership are\nthe boundaries. On the web and tailnet listeners, requests must carry a Host\nnaming the listener, and requests other than GET and HEAD that carry a\ncross-origin Origin or a cross-site Sec-Fetch-Site are refused.\n\nEvery failure returns {\"error\":{\"code\",\"message\"}}. The code is one of\nvalidation (400), forbidden (403), not_found (404), conflict (409),\nunsupported_media_type (415), unavailable (503) or internal (500)."
+  },
+  "servers": [
+    {
+      "url": "http://{host}",
+      "variables": {
+        "host": {
+          "default": "scribble",
+          "description": "The listen.web address, such as 127.0.0.1:8090, or the listen.tailnet hostname."
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/v1/thoughts": {
+      "post": {
+        "operationId": "postThoughts",
+        "summary": "Submit a thought",
+        "description": "Accepts the capture durably before any processing and answers 202 with the queued job.\nSubmitting the same id again is idempotent. The body is either application/json\n(id, captured_at, text) or multipart/form-data with the fields id and captured_at\nand an audio file part whose content type is audio/*, up to 25 MiB, for voice\ncaptures that the service transcribes.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "The request failed; the error names its code and reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/thoughts/{id}": {
+      "get": {
+        "operationId": "getThoughtsById",
+        "summary": "Read one thought",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Thought ID: the UUID the capture was submitted with, lower case.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "The request failed; the error names its code and reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/thoughts/{id}/retry": {
+      "post": {
+        "operationId": "postThoughtsByIdRetry",
+        "summary": "Queue a failed thought again, behind the thoughts already queued",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Thought ID: the UUID the capture was submitted with, lower case.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/State"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "The request failed; the error names its code and reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/thoughts/{id}/undo": {
+      "post": {
+        "operationId": "postThoughtsByIdUndo",
+        "summary": "Undo the most recent write",
+        "description": "Refused with conflict unless the thought is the latest written one, was written today and its line is unchanged in the note.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Thought ID: the UUID the capture was submitted with, lower case.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/State"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "The request failed; the error names its code and reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "List pending, failed and the latest written thoughts",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "The request failed; the error names its code and reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "getEvents",
+        "summary": "Follow status changes",
+        "description": "A text/event-stream of frames \"event: status\" with a JSON data line holding the\ncurrent status. The first event is sent on connect; further events follow each\nchange and a 15 second heartbeat.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "The request failed; the error names its code and reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Report service health, build information and tailnet state",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "The request failed; the error names its code and reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "validation",
+              "forbidden",
+              "not_found",
+              "conflict",
+              "unsupported_media_type",
+              "internal",
+              "unavailable"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "SubmitRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "captured_at": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "captured_at",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "captured_at": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "line": {
+            "type": "string"
+          },
+          "previous": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "written_at": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "undone": {
+            "type": "boolean"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "id",
+          "captured_at",
+          "state",
+          "attempts",
+          "undone",
+          "sequence"
+        ],
+        "additionalProperties": false
+      },
+      "State": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "StatusResponse": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          },
+          "today": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobs",
+          "today"
+        ],
+        "additionalProperties": false
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "build": {
+            "$ref": "#/components/schemas/Build"
+          },
+          "tailnet": {
+            "$ref": "#/components/schemas/TailnetStatus"
+          }
+        },
+        "required": [
+          "status",
+          "build",
+          "tailnet"
+        ],
+        "additionalProperties": false
+      },
+      "Build": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "commit",
+          "date"
+        ],
+        "additionalProperties": false
+      },
+      "TailnetStatus": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}
