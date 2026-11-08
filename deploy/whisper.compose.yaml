@@ -3,7 +3,9 @@ services:
     image: ghcr.io/speaches-ai/speaches:latest-cuda
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8000:8000"
+      # Loopback by default. Set WHISPER_BIND to this host's tailnet address
+      # (`tailscale ip -4`) so the scribble host can reach it over the tailnet.
+      - "${WHISPER_BIND:-127.0.0.1}:8000:8000"
     volumes:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
     environment:

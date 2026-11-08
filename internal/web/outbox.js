@@ -36,11 +36,12 @@ export async function flush(notify = () => {}) {
         headers = { 'Content-Type': 'application/json' };
       }
       let response;
-      try { response = await fetch('/thoughts', { method: 'POST', headers, body }); }
+      try { response = await fetch('/v1/thoughts', { method: 'POST', headers, body }); }
       catch { throw new Error('Saved on this device. It will send when Scribble is reachable.'); }
       if (response.status !== 202) {
         let message = `Server returned ${response.status}`;
-        try { message = (await response.json()).error || message; } catch { /* preserve status */ }
+        // The server answers failures with {"error":{"code","message"}}.
+        try { const serverMessage = (await response.json()).error?.message; if (typeof serverMessage === 'string' && serverMessage) message = serverMessage; } catch { /* preserve status */ }
         throw new Error(`${message}. Your capture is still saved on this device.`);
       }
       const receipt = await response.json();

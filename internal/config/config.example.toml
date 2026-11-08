@@ -1,0 +1,41 @@
+# scribble configuration. Copy to ~/.config/scribble/config.toml, or into
+# <root>/config.toml and start with `scribble serve --root <root>`.
+# Every value except vault is the default. vault has no default and is required.
+version = 1
+vault = "/srv/vault"
+timezone = "America/Detroit"
+lookback_days = 7              # 1 to 7
+log_level = "info"             # debug, info, warn or error
+
+[daily]                        # used only when .obsidian/daily-notes.json is absent
+folder = "Daily"
+format = "YYYY-MM-DD"
+
+[listen]                       # the socket is always <root>/scribble.sock
+web = ""                       # optional loopback host:port, such as "127.0.0.1:8090"
+tailnet = "scribble"           # tailnet hostname; empty turns the node off
+tailnet_https = true
+
+[queue]
+max_attempts = 3
+retry_backoff = "5s"
+
+[jev]
+url = "https://api.typesafe.ai"
+model = "jev-latest"
+api_key_env = "TYPESAFE_API_KEY"
+timeout = "10s"
+amend_threshold = 0.75         # thresholds are probabilities from 0 to 1
+link_threshold = 0.75
+tag_threshold = 0.6
+
+[profiles.default]
+agent = "claude"               # only claude is accepted for now
+model = "claude-haiku-5-5"
+timeout = "90s"
+# [roles.writer] profile = "default" is implied
+
+[transcribe]
+url = ""                       # full endpoint, e.g. http://whisper.<tailnet>.ts.net:8000/v1/audio/transcriptions; empty = voice jobs fail retryably
+model = "large-v3-turbo"
+api_key_env = "WHISPER_API_KEY"

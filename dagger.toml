@@ -1,13 +1,23 @@
 # Dagger v1 workspace; run `dagger check` for the full suite.
+# The Go, Staticcheck and Dang SDK modules are the shared module sources osmia's
+# workspace uses.
+
 [modules.go]
-source = "github.com/dagger/go@v0.2.0"
+source = "dagger.io/go"
 
 [modules.go.settings]
-base = "golang:1.25-bookworm"
+# Keep this image, the Playwright image tag in .dagger/modules/scribble-dev, the
+# npm @playwright/test version in package.json and the go directive in go.mod
+# moving together.
+base = "golang:1.26-bookworm"
+# -race is on by default; -count=1 turns off the test result cache.
 goflags = "-race -count=1"
+# `dagger generate` runs go:generate here; it writes docs/openapi.json and the
+# generator's stale check fails when the committed copy differs.
+generate = ["internal/openapi"]
 
 [modules.staticcheck]
-source = "github.com/dagger/go/staticcheck@v0.2.0"
+source = "dagger.io/go/staticcheck"
 
 [modules.dang-sdk]
 source = "dagger.io/sdk/dang"
@@ -15,17 +25,24 @@ source = "dagger.io/sdk/dang"
 [sdks.dang]
 module = "dang-sdk"
 
-[modules.scribble]
-source = ".dagger/modules/scribble"
+[modules.scribble-dev]
+source = ".dagger/modules/scribble-dev"
 main = true
 
-[sdks.dang.scopes.".dagger/modules/scribble"]
+[sdks.dang.scopes.".dagger/modules/scribble-dev"]
 is-module = true
-name = "scribble"
+name = "scribble-dev"
 
 [modules.playwright]
 source = "github.com/dagger/playwright@46d33ab10fa9e8ca43d782aa496a41760eadf7b3"
 
 [modules.playwright.settings]
-baseCtr = "dag://scribble/browser-runtime"
+baseCtr = "dag://scribble-dev/browser-runtime"
 setup = ["npm run build"]
+name = "scribble"
+engineVersion = "v1.0.0-beta.15"
+
+# dagger check --env=flake runs each selected test five times, with the race
+# detector still on.
+[env.flake.modules.go.settings]
+goflags = "-race -count=5"

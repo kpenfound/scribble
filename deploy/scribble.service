@@ -9,8 +9,13 @@ User=scribble
 Group=scribble
 WorkingDirectory=/var/lib/scribble
 Environment=HOME=/var/lib/scribble
+# claude (Claude Code) is a runtime dependency found on PATH. This PATH covers
+# an npm global install under /usr/local; add its directory if yours differs.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Secrets: TYPESAFE_API_KEY, ANTHROPIC_API_KEY, TS_AUTHKEY (first tailnet login)
+# and WHISPER_API_KEY when the transcription server wants one.
 EnvironmentFile=/etc/scribble/environment
-ExecStart=/usr/local/bin/scribble -config /etc/scribble/config.yaml
+ExecStart=/usr/local/bin/scribble serve --root /var/lib/scribble
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=20

@@ -1,7 +1,7 @@
 import { enqueue, queued, flush, getMeta, setMeta } from './outbox.js';
 const $ = id => document.getElementById(id);
 let jobs = [], today = '', selected = null, current = null, sending = false, recording = null, recordTimer = null;
-let registration;
+let registration, statusEvents = 0;
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
 async function render() {
   const local = await queued();
@@ -39,9 +39,14 @@ async function render() {
   }
 }
 async function status() {
-  const response = await fetch('/status', { cache: 'no-store' });
+  const events = statusEvents;
+  const response = await fetch('/v1/status', { cache: 'no-store' });
   if (!response.ok) throw new Error('Could not read capture status.');
-  await acceptStatus(await response.json());
+  const value = await response.json();
+  // A status event that arrived while this response was in flight is at least
+  // as new, and later changes send further events: a slow response must not
+  // put an older state back on screen.
+  if (events === statusEvents) await acceptStatus(value);
 }
 async function acceptStatus(value) {
   jobs = value.jobs; today = value.today;
@@ -54,7 +59,8 @@ async function sync() {
   if (sending) return;
   sending = true;
   try {
-    await flush(async receipt => { jobs = jobs.filter(job => job.id !== receipt.id); jobs.push(receipt); jobs.sort((a, b) => a.sequence - b.sequence); await render(); });
+    // A job the server already reported through a status event is newer than the 202 receipt.
+    await flush(async receipt => { if (!jobs.some(job => job.id === receipt.id)) { jobs.push(receipt); jobs.sort((a, b) => a.sequence - b.sequence); } await render(); });
     notice(); await status();
   } catch (error) { if ((await queued()).length) notice(error.message); }
   finally { sending = false; await render(); }
@@ -75,9 +81,14 @@ $('capture').addEventListener('submit', async event => {
   finally { $('send').disabled = false; }
 });
 $('thought').addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') $('capture').requestSubmit(); });
+// The server answers failures with {"error":{"code","message"}}.
+async function errorMessage(response, fallback) {
+  try { const message = (await response.json()).error?.message; if (typeof message === 'string' && message) return message; } catch { /* not JSON */ }
+  return fallback;
+}
 async function mutate(id, action) {
-  const response = await fetch(`/thoughts/${id}/${action}`, { method: 'POST' });
-  if (!response.ok) throw new Error((await response.json()).error || 'Request failed.');
+  const response = await fetch(`/v1/thoughts/${id}/${action}`, { method: 'POST' });
+  if (!response.ok) throw new Error(await errorMessage(response, 'Request failed.'));
   await status();
 }
 async function retryJob(id) { await mutate(id, 'retry'); selected = id; await setMeta('selected', id); await render(); }
@@ -113,10 +124,10 @@ async function start() {
     try { registration = await navigator.serviceWorker.register('/sw.js', { type: 'module' }); } catch (error) { notice(`Offline setup failed: ${error.message}`); }
     navigator.serviceWorker.addEventListener('message', () => { void sync(); });
   }
-  const events = new EventSource('/events');
+  const events = new EventSource('/v1/events');
   events.onopen = () => { $('connection').textContent = 'Connected'; $('connection').className = 'online'; void sync(); };
   events.onerror = () => { $('connection').textContent = 'Offline · saved here'; $('connection').className = ''; };
-  events.addEventListener('status', event => { acceptStatus(JSON.parse(event.data)).catch(error => notice(error.message)); });
+  events.addEventListener('status', event => { statusEvents++; acceptStatus(JSON.parse(event.data)).catch(error => notice(error.message)); });
   window.addEventListener('online', () => { void sync(); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void sync(); });
   // Online may mean Wi-Fi is connected while the tailnet service is restarting.
