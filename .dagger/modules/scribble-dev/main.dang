@@ -1,0 +1,92 @@
+"""
+Build and verify Scribble's release binary, and provide the browser runtime its
+Playwright suite runs in.
+"""
+type ScribbleDev {
+  """
+  Source without local runtime state or generated test reports.
+  """
+  source(ws: Workspace!): Directory! {
+    ws.directory("/", exclude: [".git", "node_modules", "bin", ".local", "test-results", "playwright-report"])
+  }
+
+  """
+  The linker flags that stamp internal/buildinfo with a release's version,
+  commit and build date, which `scribble --version` prints.
+  """
+  ldflags(version: String!, commit: String!, date: String!): String! {
+    `-X github.com/kpenfound/scribble/internal/buildinfo.Version=${version} -X github.com/kpenfound/scribble/internal/buildinfo.Commit=${commit} -X github.com/kpenfound/scribble/internal/buildinfo.Date=${date}`
+  }
+
+  """
+  A Go toolchain container, with the source mounted, that builds a static
+  binary for the engine's own platform.
+  """
+  builder(ws: Workspace!): Container! {
+    container
+      .from("golang:1.26-bookworm")
+      .withMountedCache("/go/pkg/mod", cacheVolume("scribble-go-mod"))
+      .withMountedCache("/root/.cache/go-build", cacheVolume("scribble-go-build"))
+      .withDirectory("/src", self.source(ws: ws))
+      .withWorkdir("/src")
+      .withEnvVariable("CGO_ENABLED", "0")
+  }
+
+  """
+  Build the Linux amd64 service, including its embedded PWA. A release passes
+  its version, commit and build date, which are stamped into the binary; without
+  them it reports version dev.
+  """
+  pub build(
+    ws: Workspace!,
+    """
+    Release version, such as v0.1.0.
+    """
+    version: String! = "dev",
+    """
+    Source commit the release is built from.
+    """
+    commit: String! = "",
+    """
+    Build time in RFC 3339 form.
+    """
+    date: String! = "",
+  ): File! {
+    self.builder(ws: ws)
+      .withEnvVariable("GOOS", "linux")
+      .withEnvVariable("GOARCH", "amd64")
+      .withExec(["go", "build", "-trimpath", "-ldflags", self.ldflags(version: version, commit: commit, date: date), "-o", "/out/scribble", "./cmd/scribble"])
+      .file("/out/scribble")
+  }
+
+  """
+  Compile the release artifact as part of every check, and check that a stamped
+  build prints its version information from `scribble --version`.
+  """
+  pub buildCheck(ws: Workspace!): Void @check {
+    let artifact = self.build(ws: ws).sync
+    let version = "v9.9.9-check"
+    let commit = "0123abc"
+    let date = "2026-01-02T03:04:05Z"
+    let stamped = self.builder(ws: ws)
+      .withExec(["go", "build", "-trimpath", "-ldflags", self.ldflags(version: version, commit: commit, date: date), "-o", "/out/scribble", "./cmd/scribble"])
+      .withEnvVariable("WANT", `scribble ${version} (${commit}, ${date})`)
+      .withExec(["sh", "-c", "test \"$(/out/scribble --version)\" = \"$WANT\""])
+      .sync
+    null
+  }
+
+  """
+  Runtime used by the shared Playwright module, including Go for the e2e fixture.
+  """
+  pub browserRuntime: Container! {
+    let go = container.from("golang:1.26-bookworm").directory("/usr/local/go")
+    container
+      .from("mcr.microsoft.com/playwright:v1.58.2-noble")
+      .withDirectory("/usr/local/go", go)
+      .withEnvVariable("PATH", "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+      .withMountedCache("/go/pkg/mod", cacheVolume("scribble-go-mod"))
+      .withEnvVariable("GOPATH", "/go")
+      .withMountedCache("/root/.cache/go-build", cacheVolume("scribble-go-build"))
+  }
+}

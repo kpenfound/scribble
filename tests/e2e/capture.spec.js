@@ -39,10 +39,12 @@ test.describe.serial('capture lifecycle with the real binary', () => {
     await page.getByRole('button', { name: 'Undo', exact: true }).click(); await expect(page.locator('#action')).toHaveText('Undone');
   });
   test('past thoughts link and lower-confidence same-day targets link', async ({ page }) => {
-    await page.goto('/'); await submit(page, 'follow yesterday with this detail'); await expect(page.locator('#action')).toHaveText('Added + linked');
-    await expect(page.locator('#result')).toContainText('#^scr-past]]');
-    await submit(page, 'weak follow on the last thought'); await expect(page.locator('#action')).toHaveText('Added + linked');
-    await expect(page.locator('#result')).toContainText('weak follow');
+    // The page keeps showing the previous job until the new one is accepted, so
+    // wait for the new job's line before asserting how it was written.
+    await page.goto('/'); await submit(page, 'follow yesterday with this detail');
+    await expect(page.locator('#result')).toContainText('#^scr-past]]'); await expect(page.locator('#action')).toHaveText('Added + linked');
+    await submit(page, 'weak follow on the last thought');
+    await expect(page.locator('#result')).toContainText('weak follow'); await expect(page.locator('#action')).toHaveText('Added + linked');
   });
   test('terminal provider failures are visible and the queue continues', async ({ page }) => {
     await page.goto('/'); await submit(page, 'fail routing fixture');
@@ -93,7 +95,9 @@ test.describe.serial('capture lifecycle with the real binary', () => {
     const older = randomUUID();
     expect((await request.post('/v1/thoughts', { data: { id: older, captured_at: new Date().toISOString(), text: 'An older written thought' } })).status()).toBe(202);
     await expect.poll(async () => (await (await request.get(`/v1/thoughts/${older}`)).json()).state).toBe('written');
-    await page.goto('/'); await submit(page, 'The latest written thought'); await waitWritten(page);
+    await page.goto('/'); await submit(page, 'The latest written thought');
+    // The page first shows the older written job; wait for the new one before undoing.
+    await expect(page.locator('#result')).toContainText('The latest written thought'); await waitWritten(page);
     const refuse = async action => {
       const pattern = new RegExp(`/v1/thoughts/[^/]+/${action}$`);
       await page.route(pattern, route => route.continue({ url: new URL(`/v1/thoughts/${older}/${action}`, page.url()).href }));
@@ -125,5 +129,28 @@ test.describe.serial('capture lifecycle with the real binary', () => {
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     await expect(page.locator('#result')).toContainText('Held back by the server'); await waitWritten(page);
     await expect(page.locator('#outbox')).toBeHidden();
+  });
+  test('a slow status response does not replace a newer status event', async ({ page }) => {
+    await page.goto('/'); await expect(page.locator('#connection')).toHaveText('Connected');
+    // The status request the page makes after the server accepts the capture is
+    // held until the job has been written, then answered with the job as it was
+    // before the write, the way a slow response can be. The fixture's Jev takes
+    // a moment over "slow routing", so the request starts before the write.
+    const held = [];
+    await page.route('**/v1/status', route => { held.push(route); });
+    await submit(page, 'slow routing thought');
+    await expect.poll(() => held.length).toBeGreaterThan(0);
+    // The status event delivers the written job while the request is held.
+    await expect(page.locator('#result')).toContainText('slow routing thought');
+    await waitWritten(page);
+    for (const route of held.splice(0)) {
+      const response = await route.fetch(); const body = await response.json();
+      body.jobs = body.jobs.map(job => ({ ...job, state: 'queued', line: '', action: '', written_at: '', undone: false }));
+      await route.fulfill({ response, json: body });
+    }
+    await page.waitForTimeout(500);
+    await expect(page.locator('#result')).toContainText('slow routing thought');
+    await waitWritten(page);
+    await page.unroute('**/v1/status');
   });
 });

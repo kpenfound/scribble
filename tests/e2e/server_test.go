@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -23,18 +26,39 @@ import (
 	"github.com/kpenfound/agentcore/jev/systemone"
 )
 
-// This opt-in fixture runs the production binary. Only external providers are
-// fake. The small gateway derives offered random block IDs from each request,
+// failUntilRetried is how many Jev calls for a "fail until retried" thought are
+// rejected: every automatic attempt, so the job ends failed and only a manual
+// retry (a later call) succeeds. It is the queue.max_attempts the fixture sets.
+const failUntilRetried = 3
+
+// This opt-in fixture runs the production binary as `scribble serve --root`.
+// Only external providers are fake: Jev and Whisper are local HTTP servers and
+// `claude` is the agentcore agenttest double placed first on the service's
+// PATH. The small gateway derives offered random block IDs from each request,
 // then lets agentcore's HTTP fixture serialize its scripted typed response.
+//
+// Playwright owns the lifecycle: it builds bin/scribble, starts this test with
+// SCRIBBLE_E2E_DIR naming a scratch directory, and polls the web listener's
+// /v1/health. The state root is <dir>/root, so the specs can run the CLI with
+// the same --root. The fixture records the service's pid in <dir>/service.pid
+// and its exit status in <dir>/service.exit, and after `scribble stop` ends the
+// service it keeps running until Playwright interrupts it, so a stopped
+// service is not mistaken for a failed web server.
 func TestFixtureServer(t *testing.T) {
 	if os.Getenv("SCRIBBLE_E2E") != "1" {
 		t.Skip("launched by Playwright only")
 	}
-	root, err := filepath.Abs("../..")
+	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
+	dir := os.Getenv("SCRIBBLE_E2E_DIR")
+	if dir == "" {
+		t.Fatal("SCRIBBLE_E2E_DIR names the scratch directory shared with the specs")
+	}
+	if dir, err = filepath.Abs(dir); err != nil {
+		t.Fatal(err)
+	}
 	vault := filepath.Join(dir, "vault")
 	if err = os.MkdirAll(filepath.Join(vault, "Daily"), 0750); err != nil {
 		t.Fatal(err)
@@ -47,6 +71,8 @@ func TestFixtureServer(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(vault, "Daily", yesterday+".md"), []byte("# Yesterday\n## Scribbles\n- Yesterday's idea ^scr-past\n"), 0640); err != nil {
 		t.Fatal(err)
 	}
+	var rejectedMu sync.Mutex
+	rejected := map[string]int{}
 	jevGateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/systemone" {
 			http.NotFound(w, r)
@@ -110,6 +136,18 @@ func TestFixtureServer(t *testing.T) {
 		if strings.HasPrefix(request.State.Input, "fail routing") {
 			result = jevtest.Result{Err: &systemone.Error{Kind: systemone.KindRejected}}
 		}
+		if strings.HasPrefix(request.State.Input, "slow routing") {
+			time.Sleep(1500 * time.Millisecond)
+		}
+		if strings.HasPrefix(request.State.Input, "fail until retried") {
+			rejectedMu.Lock()
+			rejected[request.State.Input]++
+			failing := rejected[request.State.Input] <= failUntilRetried
+			rejectedMu.Unlock()
+			if failing {
+				result = jevtest.Result{Err: &systemone.Error{Kind: systemone.KindRejected}}
+			}
+		}
 		endpoint := jevtest.NewServer(t, result)
 		req, err := http.NewRequest(http.MethodPost, endpoint.Settings().URL+"/v1/systemone", bytes.NewReader(body))
 		if err != nil {
@@ -168,7 +206,7 @@ func TestFixtureServer(t *testing.T) {
 	}
 	cfg := map[string]any{"version": 1, "vault": vault,
 		"listen":     map[string]any{"web": "127.0.0.1:18090", "tailnet": ""},
-		"queue":      map[string]any{"retry_backoff": "1s"},
+		"queue":      map[string]any{"max_attempts": failUntilRetried, "retry_backoff": "1s"},
 		"jev":        map[string]any{"url": jevGateway.URL, "api_key_env": "SCRIBBLE_FAKE_JEV_KEY"},
 		"transcribe": map[string]any{"url": whisper.URL + "/v1/audio/transcriptions"},
 	}
@@ -181,8 +219,10 @@ func TestFixtureServer(t *testing.T) {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(root, "bin/scribble"), "serve", "--root", stateRoot)
 	// The writer runs `claude` from PATH; the scripted fake is that executable.
+	// The CLI the specs run does not get it, so a doctor that finds claude and
+	// the Jev key proves it ran in the service's environment.
+	cmd := exec.Command(filepath.Join(repo, "bin/scribble"), "serve", "--root", stateRoot)
 	cmd.Env = append(os.Environ(), "SCRIBBLE_FAKE_JEV_KEY=fixture", "PATH="+claude.Dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -190,7 +230,42 @@ func TestFixtureServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Kill() }()
-	if err = cmd.Wait(); err != nil && ctx.Err() == nil {
+	if err = writeAtomic(filepath.Join(dir, "service.pid"), strconv.Itoa(cmd.Process.Pid)); err != nil {
 		t.Fatal(err)
 	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err = <-exited:
+		code := 0
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+		} else if err != nil {
+			code = -1
+		}
+		if werr := writeAtomic(filepath.Join(dir, "service.exit"), strconv.Itoa(code)); werr != nil {
+			t.Fatal(werr)
+		}
+		if code != 0 {
+			t.Fatalf("scribble serve exited with status %d", code)
+		}
+		// A requested stop: wait for Playwright to finish the run.
+		<-ctx.Done()
+	case <-ctx.Done():
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-exited:
+		case <-time.After(15 * time.Second):
+		}
+	}
+}
+
+// writeAtomic replaces path with content, so a reader never sees a partial file.
+func writeAtomic(path, content string) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
