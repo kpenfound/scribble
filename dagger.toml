@@ -40,7 +40,6 @@ source = "github.com/dagger/playwright@46d33ab10fa9e8ca43d782aa496a41760eadf7b3"
 baseCtr = "dag://scribble-dev/browser-runtime"
 setup = ["npm run build"]
 name = "scribble"
-engineVersion = "v1.0.0-beta.15"
 
 # dagger check --env=flake runs each selected test five times, with the race
 # detector still on.
