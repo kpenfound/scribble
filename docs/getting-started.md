@@ -1,10 +1,10 @@
 # Getting started
 
-This page takes a Linux host from nothing to a running Scribble you can capture into from your phone. It covers the build, the service account, Obsidian Headless Sync, configuration and the first start. [running.md](running.md) covers day-to-day operation and [transcription.md](transcription.md) adds voice.
+This page takes a Linux host from nothing to a running Scribble you can capture into from your phone. It covers the build, Obsidian Headless Sync, configuration, lingering and the first start, all under your own account. [running.md](running.md) covers day-to-day operation and [transcription.md](transcription.md) adds voice.
 
 You need:
 
-- A Linux host with systemd that stays on. Scribble embeds its own tailnet node, so the host does not need `tailscaled` to serve the app. Voice is the exception: the Whisper server is reached through the host's own network, so for a Whisper server on the tailnet the host needs a route to it, such as `tailscaled` on the host. See [transcription.md](transcription.md).
+- A Linux host with systemd that stays on, and an account on it that you can run services under. Scribble embeds its own tailnet node, so the host does not need `tailscaled` to serve the app. Voice is the exception: the Whisper server is reached through the host's own network, so for a Whisper server on the tailnet the host needs a route to it, such as `tailscaled` on the host. See [transcription.md](transcription.md).
 - An Obsidian Sync subscription, for [Obsidian Headless](https://obsidian.md/help/headless).
 - A TypeSafe API key for Jev.
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the `claude` CLI), with an Anthropic API key or a login. It writes amendments and new tag definitions.
@@ -12,12 +12,15 @@ You need:
 
 ## 1. Build and install
 
-Build with Go 1.26 or newer:
+Build with Go 1.26 or newer and install the binary under your home directory:
 
 ```sh
 go build -trimpath -o bin/scribble ./cmd/scribble
-sudo install -m 0755 bin/scribble /usr/local/bin/scribble
+install -d -m 0755 ~/.local/bin
+install -m 0755 bin/scribble ~/.local/bin/scribble
 ```
+
+Make sure `~/.local/bin` is on your shell's `PATH`, so the plain `scribble` commands below find the binary. The units name the binary by its full path.
 
 A plain `go build` reports version `dev`. The Dagger release build stamps the version, commit and date that `scribble --version` prints:
 
@@ -25,50 +28,51 @@ A plain `go build` reports version `dev`. The Dagger release build stamps the ve
 dagger api call scribble-dev build --version v0.1.0 --commit "$(git rev-parse --short HEAD)" --date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" export --path ./bin/scribble-linux-amd64
 ```
 
-## 2. Create the service account and directories
+## 2. Create directories and install the tools
+
+Everything lives under your home directory and runs as you. No root and no extra account are needed:
 
 ```sh
-sudo useradd --system --create-home --home-dir /var/lib/scribble --shell /bin/bash scribble
-sudo install -d -o scribble -g scribble -m 0700 /var/lib/scribble /srv/vault
-sudo install -d -m 0750 /etc/scribble
-sudo npm install -g obsidian-headless @anthropic-ai/claude-code
+install -d -m 0700 ~/vault ~/.config/scribble
+npm config set prefix ~/.local
+npm install -g obsidian-headless @anthropic-ai/claude-code
 command -v ob
 command -v claude
 ```
 
-`/var/lib/scribble` is the state root and also the account's home. Claude Code keeps its login there. `/srv/vault` is the vault.
+`~/vault` is the vault. The state root is `~/.local/share/scribble`, which Scribble creates on first start. Your own Claude Code login stays in your home directory.
 
-The supplied units expect executables in `/usr/local/bin`. If your Node installation uses another prefix, adjust `ExecStart` for `ob` in `obsidian-sync.service`, and add the directory holding `claude` to `PATH` in `scribble.service`. Run Scribble and Headless Sync as the same account so both can update the vault, and keep the state root outside the synced vault.
+`npm config set prefix ~/.local` makes global installs land in `~/.local/bin`, which is where the supplied units look. If Node uses another prefix, for example a version manager, or you installed the tools globally under `/usr/local`, adjust `ExecStart` for `ob` in `obsidian-sync.service` to the path `command -v ob` printed, and add the directory holding `claude` to `PATH` in `scribble.service`. Both units run as you, so both can update the vault. Keep the state root outside the synced vault.
 
 ## 3. Connect Obsidian Headless
 
-With an active Obsidian Sync subscription, configure the service account's vault:
+With an active Obsidian Sync subscription, configure the vault as yourself:
 
 ```sh
-sudo -u scribble -H ob login
-sudo -u scribble -H ob sync-list-remote
-sudo -u scribble -H ob sync-setup --vault 'Your Vault Name' --path /srv/vault
-sudo -u scribble -H ob sync --path /srv/vault
+ob login
+ob sync-list-remote
+ob sync-setup --vault 'Your Vault Name' --path ~/vault
+ob sync --path ~/vault
 ```
 
 Verify the first sync has finished and daily notes are present before starting Scribble. Use Headless Sync alone on this host; the desktop app stays on your Mac and Android devices. These commands follow the [Headless Sync documentation](https://obsidian.md/help/sync/headless), and [Headless requires Node 22+](https://obsidian.md/help/headless).
 
 ## 4. Configure Scribble
 
-Copy the example config into the root and set the vault. Every other value is a default; see [configuration.md](configuration.md).
+Copy the example config to `~/.config/scribble/config.toml` and set the vault. Every other value is a default; see [configuration.md](configuration.md).
 
 ```sh
-sudo -u scribble install -m 0600 internal/config/config.example.toml /var/lib/scribble/config.toml
-sudo -u scribble ${EDITOR:-nano} /var/lib/scribble/config.toml
+install -m 0600 internal/config/config.example.toml ~/.config/scribble/config.toml
+${EDITOR:-nano} ~/.config/scribble/config.toml
 ```
 
-At minimum, check `vault = "/srv/vault"` and `timezone`. Leave `listen.tailnet = "scribble"` to get `https://scribble.<tailnet>.ts.net`.
+The example says `vault = "/home/<you>/vault"`. Substitute your own home directory for `/home/<you>`; `vault` must be an absolute path, so `~` does not work. Also check `timezone`. Leave `listen.tailnet = "scribble"` to get `https://scribble.<tailnet>.ts.net`.
 
 Put the secrets in the unit's environment file:
 
 ```sh
-sudo install -m 0600 /dev/null /etc/scribble/environment
-sudoedit /etc/scribble/environment
+install -m 0600 /dev/null ~/.config/scribble/environment
+${EDITOR:-nano} ~/.config/scribble/environment
 ```
 
 ```text
@@ -77,24 +81,37 @@ ANTHROPIC_API_KEY=your-anthropic-key
 TS_AUTHKEY=tskey-auth-your-key
 ```
 
-systemd reads the file as root, so the `scribble` account does not need access to it. `TS_AUTHKEY` is used only for the node's first login; once `/var/lib/scribble/tailnet` holds the node's state you can remove it. Omit `ANTHROPIC_API_KEY` if you log in to Claude Code as `scribble` instead (`sudo -u scribble -H claude`); API key authentication is simpler for an unattended service. A missing Claude login shows up only as a failed job when an amendment or new tag is needed, so test it before relying on capture.
+The file is mode 0600 and owned by you. The systemd user manager runs as you, not as root, and reads it as you. `TS_AUTHKEY` is used only for the node's first login; once `~/.local/share/scribble/tailnet` holds the node's state you can remove it. Omit `ANTHROPIC_API_KEY` if you log in to Claude Code instead by running `claude` as yourself; API key authentication is simpler for an unattended service. A missing Claude login shows up only as a failed job when an amendment or new tag is needed, so test it before relying on capture.
 
 Jev is called at `jev.url` with the key named by `jev.api_key_env`. Claude runs through agentcore's restricted Claude Code runner with the model in `[profiles.default]`. It receives the relevant text in its prompt, runs in a temporary working directory and does not write the vault.
 
-## 5. Start the units
+## 5. Enable lingering
+
+A user manager normally exists only while you are logged in. Lingering keeps it running without a login, so the units start at boot and survive logout:
 
 ```sh
-sudo install -m 0644 deploy/scribble.service deploy/obsidian-sync.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now obsidian-sync scribble
-sudo systemctl status scribble obsidian-sync
+loginctl enable-linger "$USER"
 ```
 
-Check the service as the `scribble` account, since the socket belongs to it:
+This is the one privileged step. It needs root once, or a polkit rule that lets you do it yourself; if your account is not allowed, ask an administrator to run it for you. [running.md](running.md#managing-the-systemd-user-units) says what breaks without it.
+
+## 6. Start the units
 
 ```sh
-sudo -u scribble scribble status --root /var/lib/scribble
-sudo -u scribble scribble doctor --root /var/lib/scribble
+install -d -m 0755 ~/.config/systemd/user
+install -m 0644 deploy/scribble.service deploy/obsidian-sync.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now obsidian-sync scribble
+systemctl --user status scribble obsidian-sync
+```
+
+The units run `scribble serve` with no `--root`, so the service uses the default XDG root and config. If your shell sets `XDG_DATA_HOME` or `XDG_CONFIG_HOME`, the user manager must see the same values, or your shell and the service resolve different roots and `scribble status` reaches nothing. Either set the variables for the user manager too (`systemctl --user import-environment XDG_DATA_HOME XDG_CONFIG_HOME` for the running session, or `Environment=` lines in a drop-in made with `systemctl --user edit scribble`), or pass the same `--root PATH` to every command and in the unit's `ExecStart`.
+
+Check the service from your own shell, since the socket is yours:
+
+```sh
+scribble status
+scribble doctor
 ```
 
 `status` shows `Health: ok` and a `Tailnet:` line. On the first start the node needs a moment to log in; the line moves from `starting` to `running https://scribble.<tailnet>.ts.net`. If it says `degraded`, the reason names the fix, such as enabling HTTPS certificates for your tailnet in the Tailscale admin console or supplying `TS_AUTHKEY`. `doctor` checks the vault, the daily-notes settings, `claude`, the Jev key, the Whisper URL and the tailnet in the service's own environment.

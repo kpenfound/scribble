@@ -165,7 +165,7 @@ scribble never removes or rewrites content it didn't write, and it never touches
 - **Atomic replace.** scribble writes a temp file in the same directory and renames it over the note, so Sync never sees a half-written note.
 - **One writer.** All writes go through a single goroutine.
 - **Past notes are read-only.** The 7-day window is only read, never written.
-- **Sync.** `ob sync --continuous` runs as a separate systemd unit next to scribble, under the same account. Desktop sync is never run on this host.
+- **Sync.** `ob sync --continuous` runs as a separate systemd user unit next to scribble, under the same account. Desktop sync is never run on this host.
 
 ## Passive confirmation and corrections
 
@@ -192,18 +192,18 @@ While a thought is queued or being processed, the card shows it as pending with 
 
 ## Deployment and config
 
-scribble runs on the homelab Linux box as two systemd units under one dedicated `scribble` account, reachable only on the tailnet.
+scribble runs on the homelab Linux box as two systemd user units under the person's own account, reachable only on the tailnet. The units are installed to `~/.config/systemd/user/`, managed with `systemctl --user` and kept running without a login by enabling lingering once (`loginctl enable-linger`).
 
 | Unit | Runs | Notes |
 | --- | --- | --- |
-| `obsidian-sync` | `ob sync --continuous --path /srv/vault` | Obsidian Headless (open beta), Node 22+ |
-| `scribble` | `scribble serve --root /var/lib/scribble` | The API, the PWA and its own tailnet node |
+| `obsidian-sync` | `ob sync --continuous --path ~/vault` | Obsidian Headless (open beta), Node 22+ |
+| `scribble` | `scribble serve` | The API, the PWA and its own tailnet node |
 
-Both units run as the same account so both can update the vault. The state root must be outside the synced vault.
+Both units run as the same account so both can update the vault. The state root must be outside the synced vault. The secrets file is `~/.config/scribble/environment`, mode 0600, read by the user manager as that account.
 
 ### State root
 
-Everything scribble keeps lives in one root directory. `scribble serve --root PATH` makes PATH a self-contained root that holds `config.toml`. Without `--root`, the config is `$XDG_CONFIG_HOME/scribble/config.toml` (falling back to `~/.config`) and the root is `$XDG_DATA_HOME/scribble` (falling back to `~/.local/share`). The systemd unit uses `--root /var/lib/scribble`.
+Everything scribble keeps lives in one root directory. `scribble serve --root PATH` makes PATH a self-contained root that holds `config.toml`. Without `--root`, the config is `$XDG_CONFIG_HOME/scribble/config.toml` (falling back to `~/.config`) and the root is `$XDG_DATA_HOME/scribble` (falling back to `~/.local/share`). The systemd user unit passes no `--root`, so it uses those defaults. A shell that sets `XDG_DATA_HOME` or `XDG_CONFIG_HOME` must give the user manager the same values, or pass `--root` to the CLI and the unit; otherwise they resolve different roots.
 
 | Path under the root | Holds |
 | --- | --- |
@@ -234,7 +234,7 @@ The config is TOML with `version = 1`. Unknown keys, a wrong version, thresholds
 
 ```toml
 version = 1
-vault = "/srv/vault"
+vault = "/home/<you>/vault"
 timezone = "America/Detroit"
 lookback_days = 7
 log_level = "info"

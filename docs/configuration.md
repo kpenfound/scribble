@@ -9,7 +9,7 @@ Scribble reads one TOML file, `config.toml`. [`internal/config/config.example.to
 | `scribble serve --root PATH` | `PATH/config.toml` | `PATH` |
 | `scribble serve` | `$XDG_CONFIG_HOME/scribble/config.toml`, else `~/.config/scribble/config.toml` | `$XDG_DATA_HOME/scribble`, else `~/.local/share/scribble` |
 
-An XDG variable counts only when it is an absolute path. The systemd unit uses `--root /var/lib/scribble`, so its config is `/var/lib/scribble/config.toml`. `scribble config` prints the configuration a running service loaded, including these resolved paths.
+An XDG variable counts only when it is an absolute path. The systemd user unit runs `scribble serve` with no `--root`, so its config is `~/.config/scribble/config.toml` and its state is in `~/.local/share/scribble`. `scribble config` prints the configuration a running service loaded, including these resolved paths.
 
 Restart the service after changing the file. Daily-note settings and the tag registry are re-read during processing; nothing else is.
 
@@ -19,7 +19,7 @@ Restart the service after changing the file. Daily-note settings and the tag reg
 - Only the keys below exist. An unknown key is rejected, named by its full path such as `jev.amend_confidence`.
 - Durations are strings such as `"5s"` or `"90s"` and must be positive.
 - Absent keys keep their defaults. `vault` has no default and is required.
-- Errors name the file and the field and never quote values: `<file>: <field>: <reason>`. For example `/var/lib/scribble/config.toml: jev.tag_threshold: must be between 0 and 1`.
+- Errors name the file and the field and never quote values: `<file>: <field>: <reason>`. For example `/home/<you>/.config/scribble/config.toml: jev.tag_threshold: must be between 0 and 1`.
 
 ## Keys and defaults
 
@@ -102,7 +102,7 @@ Secrets are never in the config file. The service reads them from its environmen
 | Variable | Used for |
 | --- | --- |
 | `TYPESAFE_API_KEY` | Jev routing. The name is `jev.api_key_env`. |
-| `ANTHROPIC_API_KEY` | The `claude` CLI, unless the account is logged in to Claude Code. |
+| `ANTHROPIC_API_KEY` | The `claude` CLI, unless you are logged in to Claude Code. |
 | `TS_AUTHKEY` | The embedded node's first login. Later starts use `<root>/tailnet`. |
 | `WHISPER_API_KEY` | The transcription server, when it needs a bearer key. The name is `transcribe.api_key_env`. |
 
@@ -110,7 +110,7 @@ Secrets are never in the config file. The service reads them from its environmen
 
 ```toml
 version = 1
-vault = "/srv/vault"
+vault = "/home/<you>/vault"
 timezone = "America/Detroit"
 lookback_days = 7
 log_level = "info"

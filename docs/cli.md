@@ -20,9 +20,11 @@ Flags may come before or after the job id. `scribble help` prints the usage.
 - With `--root PATH`, the root is `PATH`, the config is `PATH/config.toml` and the service listens on `PATH/scribble.sock`.
 - Without it, the root is `$XDG_DATA_HOME/scribble` (default `~/.local/share/scribble`), the config is `$XDG_CONFIG_HOME/scribble/config.toml` and the socket is in that root.
 
-So after `scribble serve --root /var/lib/scribble`, `scribble status --root /var/lib/scribble` reaches that service and no other. With two services under different roots, each command acts on, and reports, only the service of the root it names. Pass the same `--root` that started the service. A command without `--root` looks only at the default root's socket.
+So after `scribble serve --root ~/scribble-root`, `scribble status --root ~/scribble-root` reaches that service and no other. With two services under different roots, each command acts on, and reports, only the service of the root it names. Pass the same `--root` that started the service. A command without `--root` looks only at the default root's socket.
 
-The socket is mode 0600 and owned by the account that runs the service. Run the commands as that account; see [running.md](running.md#managing-the-systemd-service).
+The systemd user unit runs `scribble serve` with no `--root`, so plain `scribble status` from your shell reaches it, provided the shell and the user manager resolve the same default root. A shell that sets `XDG_DATA_HOME` or `XDG_CONFIG_HOME` needs the user manager to have the same values; otherwise the commands look at a different root. Give the user manager the same values, or pass `--root` to the commands and to the unit's `ExecStart`. See [getting-started.md](getting-started.md#6-start-the-units).
+
+The socket is mode 0600 and owned by the account that runs the service, so run the commands as that account; see [running.md](running.md#managing-the-systemd-user-units).
 
 A socket path longer than the Unix limit (103 bytes) is rejected, so choose a short root.
 
@@ -90,7 +92,7 @@ It exits 5 when any check fails.
 
 Asks the service to shut down over its socket. The service stops its listeners, lets the worker finish and closes the database, as it does on a signal, and `stop` returns once the service has gone (it waits for the socket file to disappear, up to 30 seconds). Prints `scribble service on <socket> stopped`; `--json` prints `{"state":"stopped"}`.
 
-Under systemd, use `systemctl stop scribble` instead; `Restart=on-failure` does not restart a clean stop.
+Under systemd, use `systemctl --user stop scribble` instead; `Restart=on-failure` does not restart a clean stop.
 
 ## `--version`
 
