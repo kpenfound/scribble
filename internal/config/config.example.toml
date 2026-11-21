@@ -2,7 +2,7 @@
 # <root>/config.toml and start with `scribble serve --root <root>`.
 # Every value except vault is the default. vault has no default and is required.
 version = 1
-vault = "/srv/vault"
+vault = "/home/<you>/vault"      # absolute path; replace <you> with your user name
 timezone = "America/Detroit"
 lookback_days = 7              # 1 to 7
 log_level = "info"             # debug, info, warn or error

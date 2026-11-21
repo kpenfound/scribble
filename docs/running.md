@@ -1,12 +1,12 @@
 # Running Scribble
 
-This page covers the tailnet node, installing the PWA, managing the systemd service, tuning the routing thresholds, recovery and limits. For first-time setup see [getting-started.md](getting-started.md).
+This page covers the tailnet node, installing the PWA, managing the systemd user units, tuning the routing thresholds, recovery and limits. For first-time setup see [getting-started.md](getting-started.md).
 
 ## The tailnet
 
 Scribble embeds a Tailscale node (tsnet). It joins your tailnet as its own machine, named by `listen.tailnet` (default `scribble`), and serves the app on it. It does not need `tailscaled` on the host.
 
-- **First login.** Set `TS_AUTHKEY` in `/etc/scribble/environment` before the first start. The node logs in with it and stores its state in `<root>/tailnet` (`/var/lib/scribble/tailnet`). Later starts use that state, so the key can then be removed. Without a key, the node logs a login URL (`login_url` in the journal) that you can open to approve it, and `scribble status` shows the tailnet as degraded until you do.
+- **First login.** Set `TS_AUTHKEY` in `~/.config/scribble/environment` before the first start. The node logs in with it and stores its state in `<root>/tailnet` (`~/.local/share/scribble/tailnet`). Later starts use that state, so the key can then be removed. Without a key, the node logs a login URL (`login_url` in the journal) that you can open to approve it, and `scribble status` shows the tailnet as degraded until you do.
 - **HTTPS.** With `tailnet_https = true` the node serves on port 443 with a Tailscale certificate. Enable HTTPS certificates for your tailnet in the Tailscale admin console first. Microphone access needs HTTPS. `tailnet_https = false` serves plain HTTP on port 80.
 - **The URL.** The app is at `https://scribble.<tailnet>.ts.net`, where `<tailnet>` is your tailnet's name. `scribble status` prints the exact URL once the node runs.
 - **Access.** Tailnet access control is the authentication boundary. There is no login. Limit access to your own devices with tailnet grants or ACLs, and do not enable Funnel for this node.
@@ -22,30 +22,32 @@ Open `https://scribble.<tailnet>.ts.net` on your Android phone or desktop, signe
 - An acknowledged capture is safely on the server even if the tab closes. The app shows pending and failed captures and the last completed write, with an Undo button for it.
 - Recording stops by itself after two minutes.
 
-## Managing the systemd service
+## Managing the systemd user units
 
-The unit runs `scribble serve --root /var/lib/scribble` as the `scribble` account. Its socket is `/var/lib/scribble/scribble.sock`, mode 0600 and owned by `scribble`, so the CLI commands run as that account and name the same root:
+Scribble runs as two systemd user units, `scribble` and `obsidian-sync`, under your own account. The unit runs `scribble serve` with no `--root`, so the state root is `~/.local/share/scribble` and the config is `~/.config/scribble/config.toml`. The socket is `~/.local/share/scribble/scribble.sock`, mode 0600 and owned by you, so the CLI commands work from your own shell with no `--root`:
 
 ```sh
-sudo systemctl status scribble
-sudo journalctl -u scribble -f
+systemctl --user status scribble obsidian-sync
+journalctl --user -u scribble -f
 
-sudo -u scribble scribble status --root /var/lib/scribble
-sudo -u scribble scribble doctor --root /var/lib/scribble
-sudo -u scribble scribble config --root /var/lib/scribble
-sudo -u scribble scribble retry <job-id> --root /var/lib/scribble
-sudo -u scribble scribble undo  <job-id> --root /var/lib/scribble
+scribble status
+scribble doctor
+scribble config
+scribble retry <job-id>
+scribble undo  <job-id>
 ```
 
-Without `--root`, a command looks at the default root of the account that runs it (`~/.local/share/scribble`), which is a different service or none. See [cli.md](cli.md).
+**Lingering is required.** The user manager runs only while you are logged in unless lingering is on (`loginctl enable-linger "$USER"`, which needs root once or a polkit rule). Without it, both units stop when your last session ends and do not start at boot, so capture is down until you log in again. `loginctl show-user "$USER" --property=Linger` should say `Linger=yes`.
 
-- **Apply a config change:** edit `/var/lib/scribble/config.toml`, then `sudo systemctl restart scribble`. `scribble config` keeps showing the previous configuration until the restart, because it prints what the running service holds.
-- **Stop:** `sudo systemctl stop scribble`. `sudo -u scribble scribble stop --root /var/lib/scribble` shuts the service down the same way, but systemd then sees a clean exit and does not restart it.
-- **Check the environment:** `scribble doctor` runs inside the service, so it reports the `PATH` and keys the service actually has. If `claude` or a key is missing, fix the unit's `Environment=PATH=…` or `/etc/scribble/environment` and restart.
-- **Health probes:** `curl` the socket with `sudo -u scribble curl --unix-socket /var/lib/scribble/scribble.sock http://scribble/v1/health`. The endpoint is `GET /v1/health`, which reports build information and the tailnet state.
-- **Logs:** the service writes JSON to stdout, which systemd sends to journald. Logs contain raw captured thoughts by design (`route.decision`), so set journald access and retention accordingly. A service started with `--detach` writes `<root>/service.log` instead.
+**Keep the XDG values the same.** The CLI and the unit must resolve the same root. A shell that sets `XDG_DATA_HOME` or `XDG_CONFIG_HOME` has to give the user manager the same values, for example with `Environment=` lines in a drop-in from `systemctl --user edit scribble`. Otherwise `scribble status` looks at a different root than the service and reports no service. Alternatively, pass `--root PATH` to every command and to the unit's `ExecStart`. See [cli.md](cli.md).
 
-Update the binary with `sudo install -m 0755 bin/scribble /usr/local/bin/scribble` and restart. Jobs survive restarts.
+- **Apply a config change:** edit `~/.config/scribble/config.toml`, then `systemctl --user restart scribble`. `scribble config` keeps showing the previous configuration until the restart, because it prints what the running service holds.
+- **Stop:** `systemctl --user stop scribble`. `scribble stop` shuts the service down the same way, but systemd then sees a clean exit and does not restart it.
+- **Check the environment:** `scribble doctor` runs inside the service, so it reports the `PATH` and keys the service actually has. If `claude` or a key is missing, fix the unit's `Environment=PATH=…` or `~/.config/scribble/environment` and restart. The user manager reads the environment file as you, not as root, so it needs to be readable by you (mode 0600 is right). After editing a unit file, run `systemctl --user daemon-reload`.
+- **Health probes:** `curl` the socket with `curl --unix-socket ~/.local/share/scribble/scribble.sock http://scribble/v1/health`. The endpoint is `GET /v1/health`, which reports build information and the tailnet state.
+- **Logs:** the service writes JSON to stdout, which systemd sends to the user journal. Read it with `journalctl --user -u scribble`. Logs contain raw captured thoughts by design (`route.decision`), so set journald access and retention accordingly. A service started with `--detach` writes `<root>/service.log` instead.
+
+Update the binary with `install -m 0755 bin/scribble ~/.local/bin/scribble` and `systemctl --user restart scribble`. Jobs survive restarts.
 
 ## Tuning the thresholds
 
@@ -61,14 +63,14 @@ Every thought logs one `route.decision` event and every undo logs `entry.undo` w
 View decisions and undos:
 
 ```sh
-journalctl -u scribble --since '7 days ago' -o cat \
+journalctl --user -u scribble --since '7 days ago' -o cat \
   | jq -c 'select(.msg == "route.decision" or .msg == "entry.undo")'
 ```
 
 Join undo signals to decisions:
 
 ```sh
-journalctl -u scribble --since '30 days ago' -o cat \
+journalctl --user -u scribble --since '30 days ago' -o cat \
   | jq -s '
       [.[] | select(.msg == "entry.undo") | .job_id] as $undone |
       [.[] | select(.msg == "route.decision") |

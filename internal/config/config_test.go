@@ -13,7 +13,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const base = "version = 1\nvault = \"/srv/vault\"\n"
+const base = "version = 1\nvault = \"/home/test/vault\"\n"
 
 // parse labels errors with a fixed file name so the error format is exact.
 func parse(t *testing.T, text string) (Config, error) {
@@ -27,7 +27,7 @@ func TestParseMinimalConfigKeepsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := DefaultConfig()
-	want.Vault = "/srv/vault"
+	want.Vault = "/home/test/vault"
 	if c.Vault != want.Vault || c.Jev != want.Jev || c.Profiles != want.Profiles || c.Queue != want.Queue || c.Listen != want.Listen {
 		t.Fatalf("defaults lost: %+v", c)
 	}
@@ -84,16 +84,16 @@ func TestParseRejectsWithFileFieldReason(t *testing.T) {
 	for name, tc := range map[string]struct{ text, field, reason string }{
 		"unknown top-level key":       {base + "bogus = 1\n", "bogus", "unknown key"},
 		"unknown nested key":          {base + "[jev]\nbogus = 1\n", "jev.bogus", "unknown key"},
-		"YAML-era queue_db":           {base + "queue_db = \"/var/lib/scribble/queue.db\"\n", "queue_db", "unknown key"},
+		"YAML-era queue_db":           {base + "queue_db = \"/home/test/queue.db\"\n", "queue_db", "unknown key"},
 		"YAML-era claude.binary":      {base + "[claude]\nbinary = \"claude\"\n", "claude.binary", "unknown key"},
 		"YAML-era amend_confidence":   {base + "[jev]\namend_confidence = 0.5\n", "jev.amend_confidence", "unknown key"},
 		"YAML-era link_confidence":    {base + "[jev]\nlink_confidence = 0.5\n", "jev.link_confidence", "unknown key"},
 		"YAML-era tag_confidence":     {base + "[jev]\ntag_confidence = 0.5\n", "jev.tag_confidence", "unknown key"},
 		"YAML-era listen string":      {base + "listen = \"127.0.0.1:8090\"\n", "listen", "wrong type"},
 		"unknown profile":             {base + "[profiles.fast]\nagent = \"claude\"\n", "profiles.fast.agent", "unknown key"},
-		"version missing":             {"vault = \"/srv/vault\"\n", "version", "must be 1"},
-		"version 2":                   {"version = 2\nvault = \"/srv/vault\"\n", "version", "must be 1"},
-		"version 0":                   {"version = 0\nvault = \"/srv/vault\"\n", "version", "must be 1"},
+		"version missing":             {"vault = \"/home/test/vault\"\n", "version", "must be 1"},
+		"version 2":                   {"version = 2\nvault = \"/home/test/vault\"\n", "version", "must be 1"},
+		"version 0":                   {"version = 0\nvault = \"/home/test/vault\"\n", "version", "must be 1"},
 		"vault missing":               {"version = 1\n", "vault", "is required"},
 		"unknown timezone":            {base + "timezone = \"Mars/Base\"\n", "timezone", "unknown time zone"},
 		"lookback 0":                  {base + "lookback_days = 0\n", "lookback_days", "between 1 and 7"},

@@ -1,33 +1,26 @@
 [Unit]
 Description=Scribble thought capture
-Wants=network-online.target
-After=network-online.target
 
 [Service]
 Type=simple
-User=scribble
-Group=scribble
-WorkingDirectory=/var/lib/scribble
-Environment=HOME=/var/lib/scribble
+WorkingDirectory=%h
 # claude (Claude Code) is a runtime dependency found on PATH. This PATH covers
-# an npm global install under /usr/local; add its directory if yours differs.
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# an npm user prefix at ~/.local and a global install under /usr/local; add the
+# directory holding claude if yours differs.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Secrets: TYPESAFE_API_KEY, ANTHROPIC_API_KEY, TS_AUTHKEY (first tailnet login)
 # and WHISPER_API_KEY when the transcription server wants one.
-EnvironmentFile=/etc/scribble/environment
-ExecStart=/usr/local/bin/scribble serve --root /var/lib/scribble
+EnvironmentFile=%h/.config/scribble/environment
+# No --root: state is under $XDG_DATA_HOME/scribble (default ~/.local/share/scribble)
+# and the config is $XDG_CONFIG_HOME/scribble/config.toml (default ~/.config).
+ExecStart=%h/.local/bin/scribble serve
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=20
-StateDirectory=scribble
 UMask=0077
 NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/srv/vault /var/lib/scribble
 StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

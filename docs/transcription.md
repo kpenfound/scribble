@@ -19,12 +19,12 @@ api_key_env = "WHISPER_API_KEY"
 
 ```sh
 curl -I http://whisper.<tailnet>.ts.net:8000/v1/audio/transcriptions
-sudo -u scribble scribble doctor --root /var/lib/scribble
+scribble doctor
 ```
 
 `doctor` runs in the service's environment and network and passes the `whisper` check when the URL answers over HTTP. Any HTTP status counts as reachable, since a transcription endpoint may refuse `HEAD`.
 
-If the server requires a bearer key, put `WHISPER_API_KEY=…` in `/etc/scribble/environment` (the variable name is `transcribe.api_key_env`) and restart.
+If the server requires a bearer key, put `WHISPER_API_KEY=…` in `~/.config/scribble/environment` (the variable name is `transcribe.api_key_env`) and run `systemctl --user restart scribble`.
 
 ## Setting up the server on an RTX 3070 host
 
