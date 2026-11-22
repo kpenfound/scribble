@@ -14,11 +14,11 @@ scribble doctor    # check the vault, claude, keys, Whisper and the tailnet
 
 | Page | Covers |
 | --- | --- |
-| [Getting started](docs/getting-started.md) | Build, Obsidian Headless, config, lingering, the user units and the first start. |
+| [Getting started](docs/getting-started.md) | Build, Obsidian Headless, config, lingering, the user unit and the first start. |
 | [Configuration](docs/configuration.md) | The TOML file, its location, every key and default. |
 | [Command line](docs/cli.md) | Every command, `--root`, `--json` and exit codes. |
-| [Running](docs/running.md) | The tailnet, installing the PWA, the systemd user units, threshold tuning, recovery and limits. |
-| [Voice transcription](docs/transcription.md) | Whisper on a tailnet host. |
+| [Running](docs/running.md) | The tailnet, installing the PWA, the systemd user unit, threshold tuning, recovery and limits. |
+| [Voice transcription](docs/transcription.md) | Reaching a Whisper server on a tailnet host. |
 | [Testing](docs/testing.md) | `dagger check`, fakes, the e2e suite and regenerating files. |
 | [Design](docs/design.md) | The product contract and the decisions behind it. |
 | [OpenAPI](docs/openapi.json) | The public `/v1` API, generated from the routes. |

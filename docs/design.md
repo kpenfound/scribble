@@ -192,14 +192,14 @@ While a thought is queued or being processed, the card shows it as pending with 
 
 ## Deployment and config
 
-scribble runs on the homelab Linux box as two systemd user units under the person's own account, reachable only on the tailnet. The units are installed to `~/.config/systemd/user/`, managed with `systemctl --user` and kept running without a login by enabling lingering once (`loginctl enable-linger`).
+scribble runs on the homelab Linux box as a systemd user unit under the person's own account, reachable only on the tailnet. Obsidian Headless Sync runs as its own unit next to it, and Whisper runs on a separate tailnet host. The lab deploys the sync unit and the Whisper server from the Apiary repository; this repository supplies only the `scribble` unit. The unit is installed to `~/.config/systemd/user/`, managed with `systemctl --user` and kept running without a login by enabling lingering once (`loginctl enable-linger`).
 
 | Unit | Runs | Notes |
 | --- | --- | --- |
-| `obsidian-sync` | `ob sync --continuous --path ~/vault` | Obsidian Headless (open beta), Node 22+ |
-| `scribble` | `scribble serve` | The API, the PWA and its own tailnet node |
+| `scribble` | `scribble serve` | The API, the PWA and its own tailnet node. Supplied by this repository. |
+| Obsidian Headless Sync | `ob sync --continuous --path ~/vault` | Obsidian Headless (open beta), Node 22+. Deployed from the Apiary repository. |
 
-Both units run as the same account so both can update the vault. The state root must be outside the synced vault. The secrets file is `~/.config/scribble/environment`, mode 0600, read by the user manager as that account.
+The sync unit runs as the same account as scribble so both can update the vault. The state root must be outside the synced vault. The secrets file is `~/.config/scribble/environment`, mode 0600, read by the user manager as that account.
 
 ### State root
 
@@ -288,7 +288,7 @@ Failures answer `{"error":{"code","message"}}` with a matching HTTP status. The 
 
 ### Transcription and CI
 
-Transcription runs on a separate tailnet host (ideally one with a GPU) as an OpenAI-compatible transcription server backed by faster-whisper; speaches is one example. scribble posts to the configured endpoint, so the server can be swapped for whisper.cpp or a hosted API by changing the URL. The host is the RTX 3070 machine (8 GB, Ampere), running `large-v3-turbo` in float16 at about 3 GB of VRAM. [transcription.md](transcription.md) has the setup.
+Transcription runs on a separate tailnet host (ideally one with a GPU) as an OpenAI-compatible transcription server backed by faster-whisper; speaches is one example. scribble posts to the configured endpoint, so the server can be swapped for whisper.cpp or a hosted API by changing the URL. The lab deploys the server from the Apiary repository, running `large-v3-turbo`. [transcription.md](transcription.md) covers how scribble reaches it.
 
 CI is Dagger: the workspace's Go, Staticcheck, Playwright and release build checks are the CI contract, run natively by Dagger Cloud Checks (`dagger cloud checks on`).
 
