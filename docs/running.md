@@ -24,10 +24,10 @@ Open `https://scribble.<tailnet>.ts.net` on your Android phone or desktop, signe
 
 ## Managing the systemd user units
 
-Scribble runs as two systemd user units, `scribble` and `obsidian-sync`, under your own account. The unit runs `scribble serve` with no `--root`, so the state root is `~/.local/share/scribble` and the config is `~/.config/scribble/config.toml`. The socket is `~/.local/share/scribble/scribble.sock`, mode 0600 and owned by you, so the CLI commands work from your own shell with no `--root`:
+Scribble runs as the `scribble` systemd user unit under your own account. Obsidian Headless Sync (`ob sync --continuous`) runs as its own unit next to it under the same account; the lab deploys that from the Apiary repository. The `scribble` unit runs `scribble serve` with no `--root`, so the state root is `~/.local/share/scribble` and the config is `~/.config/scribble/config.toml`. The socket is `~/.local/share/scribble/scribble.sock`, mode 0600 and owned by you, so the CLI commands work from your own shell with no `--root`:
 
 ```sh
-systemctl --user status scribble obsidian-sync
+systemctl --user status scribble
 journalctl --user -u scribble -f
 
 scribble status
@@ -37,7 +37,7 @@ scribble retry <job-id>
 scribble undo  <job-id>
 ```
 
-**Lingering is required.** The user manager runs only while you are logged in unless lingering is on (`loginctl enable-linger "$USER"`, which needs root once or a polkit rule). Without it, both units stop when your last session ends and do not start at boot, so capture is down until you log in again. `loginctl show-user "$USER" --property=Linger` should say `Linger=yes`.
+**Lingering is required.** The user manager runs only while you are logged in unless lingering is on (`loginctl enable-linger "$USER"`, which needs root once or a polkit rule). Without it, Scribble and the sync unit stop when your last session ends and do not start at boot, so capture is down until you log in again. `loginctl show-user "$USER" --property=Linger` should say `Linger=yes`.
 
 **Keep the XDG values the same.** The CLI and the unit must resolve the same root. A shell that sets `XDG_DATA_HOME` or `XDG_CONFIG_HOME` has to give the user manager the same values, for example with `Environment=` lines in a drop-in from `systemctl --user edit scribble`. Otherwise `scribble status` looks at a different root than the service and reports no service. Alternatively, pass `--root PATH` to every command and to the unit's `ExecStart`. See [cli.md](cli.md).
 

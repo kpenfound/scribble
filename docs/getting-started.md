@@ -20,7 +20,7 @@ install -d -m 0755 ~/.local/bin
 install -m 0755 bin/scribble ~/.local/bin/scribble
 ```
 
-Make sure `~/.local/bin` is on your shell's `PATH`, so the plain `scribble` commands below find the binary. The units name the binary by its full path.
+Make sure `~/.local/bin` is on your shell's `PATH`, so the plain `scribble` commands below find the binary. The unit names the binary by its full path.
 
 A plain `go build` reports version `dev`. The Dagger release build stamps the version, commit and date that `scribble --version` prints:
 
@@ -42,7 +42,7 @@ command -v claude
 
 `~/vault` is the vault. The state root is `~/.local/share/scribble`, which Scribble creates on first start. Your own Claude Code login stays in your home directory.
 
-`npm config set prefix ~/.local` makes global installs land in `~/.local/bin`, which is where the supplied units look. If Node uses another prefix, for example a version manager, or you installed the tools globally under `/usr/local`, adjust `ExecStart` for `ob` in `obsidian-sync.service` to the path `command -v ob` printed, and add the directory holding `claude` to `PATH` in `scribble.service`. Both units run as you, so both can update the vault. Keep the state root outside the synced vault.
+`npm config set prefix ~/.local` makes global installs land in `~/.local/bin`, which is where `scribble.service` looks. If Node uses another prefix, for example a version manager, or you installed the tools globally under `/usr/local`, add the directory holding `claude` to `PATH` in `scribble.service`. Whatever runs `ob sync --continuous` needs to find `ob` the same way; `command -v ob` prints its path. Scribble and the sync service run as you, so both can update the vault. Keep the state root outside the synced vault.
 
 ## 3. Connect Obsidian Headless
 
@@ -55,7 +55,7 @@ ob sync-setup --vault 'Your Vault Name' --path ~/vault
 ob sync --path ~/vault
 ```
 
-Verify the first sync has finished and daily notes are present before starting Scribble. Use Headless Sync alone on this host; the desktop app stays on your Mac and Android devices. These commands follow the [Headless Sync documentation](https://obsidian.md/help/sync/headless), and [Headless requires Node 22+](https://obsidian.md/help/headless).
+Verify the first sync has finished and daily notes are present before starting Scribble. This is the one-time setup; keeping the vault current afterwards is a separate continuous sync service. The lab deploys Obsidian Headless Sync from the Apiary repository. Whatever runs it needs to run `ob sync --continuous --path ~/vault` as the same account as Scribble, after the setup above. Use Headless Sync alone on this host; the desktop app stays on your Mac and Android devices. These commands follow the [Headless Sync documentation](https://obsidian.md/help/sync/headless), and [Headless requires Node 22+](https://obsidian.md/help/headless).
 
 ## 4. Configure Scribble
 
@@ -87,7 +87,7 @@ Jev is called at `jev.url` with the key named by `jev.api_key_env`. Claude runs 
 
 ## 5. Enable lingering
 
-A user manager normally exists only while you are logged in. Lingering keeps it running without a login, so the units start at boot and survive logout:
+A user manager normally exists only while you are logged in. Lingering keeps it running without a login, so the services start at boot and survive logout:
 
 ```sh
 loginctl enable-linger "$USER"
@@ -95,17 +95,17 @@ loginctl enable-linger "$USER"
 
 This is the one privileged step. It needs root once, or a polkit rule that lets you do it yourself; if your account is not allowed, ask an administrator to run it for you. [running.md](running.md#managing-the-systemd-user-units) says what breaks without it.
 
-## 6. Start the units
+## 6. Start the service
 
 ```sh
 install -d -m 0755 ~/.config/systemd/user
-install -m 0644 deploy/scribble.service deploy/obsidian-sync.service ~/.config/systemd/user/
+install -m 0644 deploy/scribble.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now obsidian-sync scribble
-systemctl --user status scribble obsidian-sync
+systemctl --user enable --now scribble
+systemctl --user status scribble
 ```
 
-The units run `scribble serve` with no `--root`, so the service uses the default XDG root and config. If your shell sets `XDG_DATA_HOME` or `XDG_CONFIG_HOME`, the user manager must see the same values, or your shell and the service resolve different roots and `scribble status` reaches nothing. Either set the variables for the user manager too (`systemctl --user import-environment XDG_DATA_HOME XDG_CONFIG_HOME` for the running session, or `Environment=` lines in a drop-in made with `systemctl --user edit scribble`), or pass the same `--root PATH` to every command and in the unit's `ExecStart`.
+The unit runs `scribble serve` with no `--root`, so the service uses the default XDG root and config. If your shell sets `XDG_DATA_HOME` or `XDG_CONFIG_HOME`, the user manager must see the same values, or your shell and the service resolve different roots and `scribble status` reaches nothing. Either set the variables for the user manager too (`systemctl --user import-environment XDG_DATA_HOME XDG_CONFIG_HOME` for the running session, or `Environment=` lines in a drop-in made with `systemctl --user edit scribble`), or pass the same `--root PATH` to every command and in the unit's `ExecStart`.
 
 Check the service from your own shell, since the socket is yours:
 
